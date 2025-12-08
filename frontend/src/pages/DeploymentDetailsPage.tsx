@@ -1,0 +1,247 @@
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import { useDeployment, useDeploymentPods, useDeleteDeployment } from '@/hooks/useDeployments'
+import { useToast } from '@/hooks/useToast'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { DeploymentStatusBadge } from '@/components/deployments/DeploymentStatusBadge'
+import { formatRelativeTime } from '@/lib/utils'
+import { Loader2, ArrowLeft, Trash2, Copy, Terminal } from 'lucide-react'
+import { useState } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
+export function DeploymentDetailsPage() {
+  const { name } = useParams<{ name: string }>()
+  const [searchParams] = useSearchParams()
+  const namespace = searchParams.get('namespace') || undefined
+  const navigate = useNavigate()
+  const { toast } = useToast()
+  const deleteDeployment = useDeleteDeployment()
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+
+  const { data: deployment, isLoading, error } = useDeployment(name, namespace)
+  const { data: pods } = useDeploymentPods(name, namespace)
+
+  const handleDelete = async () => {
+    if (!deployment) return
+
+    try {
+      await deleteDeployment.mutateAsync({
+        name: deployment.name,
+        namespace: deployment.namespace,
+      })
+      toast({
+        title: 'Deployment Deleted',
+        description: `${deployment.name} has been deleted`,
+        variant: 'success',
+      })
+      navigate('/deployments')
+    } catch (error) {
+      toast({
+        title: 'Delete Failed',
+        description: error instanceof Error ? error.message : 'Failed to delete deployment',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const copyPortForwardCommand = () => {
+    if (!deployment) return
+    const command = `kubectl port-forward svc/${deployment.frontendService || deployment.name + '-frontend'} 8000:8000 -n ${deployment.namespace}`
+    navigator.clipboard.writeText(command)
+    toast({
+      title: 'Copied to clipboard',
+      description: 'Port-forward command copied',
+    })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error || !deployment) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <p className="text-lg font-medium text-destructive">
+          Deployment not found
+        </p>
+        <p className="text-sm text-muted-foreground mt-1 mb-4">
+          The requested deployment could not be found
+        </p>
+        <Button onClick={() => navigate('/deployments')}>
+          Back to Deployments
+        </Button>
+      </div>
+    )
+  }
+
+  const portForwardCommand = `kubectl port-forward svc/${deployment.frontendService || deployment.name + '-frontend'} 8000:8000 -n ${deployment.namespace}`
+
+  return (
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/deployments')}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">{deployment.name}</h1>
+            <p className="text-muted-foreground">
+              {deployment.namespace} • Created {formatRelativeTime(deployment.createdAt)}
+            </p>
+          </div>
+        </div>
+
+        <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete
+        </Button>
+      </div>
+
+      {/* Status Overview */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Phase</p>
+              <DeploymentStatusBadge phase={deployment.phase} />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Replicas</p>
+              <p className="font-medium">
+                {deployment.replicas.ready}/{deployment.replicas.desired} Ready
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Engine</p>
+              <Badge variant="outline">{deployment.engine.toUpperCase()}</Badge>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Mode</p>
+              <p className="font-medium capitalize">{deployment.mode}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Model Info */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Model</CardTitle>
+          <CardDescription>{deployment.modelId}</CardDescription>
+        </CardHeader>
+      </Card>
+
+      {/* Port Forward Instructions */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Terminal className="h-5 w-5" />
+            <CardTitle>Access Model</CardTitle>
+          </div>
+          <CardDescription>
+            Run this command to access the deployed model locally
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 rounded-lg bg-muted p-3 text-sm font-mono overflow-x-auto">
+              {portForwardCommand}
+            </code>
+            <Button variant="outline" size="icon" onClick={copyPortForwardCommand}>
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            After running the command, access the model at http://localhost:8000
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Pods */}
+      {pods && pods.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Pods</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-lg border">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-4 py-2 text-left text-sm font-medium">Name</th>
+                    <th className="px-4 py-2 text-left text-sm font-medium">Status</th>
+                    <th className="px-4 py-2 text-left text-sm font-medium">Ready</th>
+                    <th className="px-4 py-2 text-left text-sm font-medium">Restarts</th>
+                    <th className="px-4 py-2 text-left text-sm font-medium">Node</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pods.map((pod) => (
+                    <tr key={pod.name} className="border-b last:border-0">
+                      <td className="px-4 py-2 text-sm font-mono">{pod.name}</td>
+                      <td className="px-4 py-2">
+                        <Badge variant={pod.phase === 'Running' ? 'success' : 'warning'}>
+                          {pod.phase}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2 text-sm">{pod.ready ? '✓' : '✗'}</td>
+                      <td className="px-4 py-2 text-sm">{pod.restarts}</td>
+                      <td className="px-4 py-2 text-sm text-muted-foreground">{pod.node || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Deployment</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deployment.name}</strong>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleteDeployment.isPending}
+            >
+              {deleteDeployment.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
