@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { useSettings, useUpdateSettings, useProviderDetails } from '@/hooks/useSettings'
 import { useClusterStatus } from '@/hooks/useClusterStatus'
+import { useHelmStatus } from '@/hooks/useInstallation'
+import { useGpuOperatorStatus, useInstallGpuOperator } from '@/hooks/useGpuOperator'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -14,15 +17,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/useToast'
-import { CheckCircle, XCircle, AlertCircle, Loader2, Server, Settings as SettingsIcon, Terminal } from 'lucide-react'
+import { CheckCircle, XCircle, AlertCircle, Loader2, Server, Settings as SettingsIcon, Terminal, Cpu } from 'lucide-react'
 
 export function SettingsPage() {
   const { data: settings, isLoading: settingsLoading } = useSettings()
   const { data: clusterStatus, isLoading: clusterLoading } = useClusterStatus()
+  const { data: helmStatus } = useHelmStatus()
+  const { data: gpuOperatorStatus, isLoading: gpuStatusLoading, refetch: refetchGpuStatus } = useGpuOperatorStatus()
+  const installGpuOperator = useInstallGpuOperator()
   const updateSettings = useUpdateSettings()
   const { toast } = useToast()
 
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
+  const [isInstallingGpu, setIsInstallingGpu] = useState(false)
   const activeProviderId = selectedProviderId || settings?.config.activeProviderId || 'dynamo'
 
   const { data: providerDetails } = useProviderDetails(activeProviderId)
@@ -179,6 +186,161 @@ export function SettingsPage() {
               The default Kubernetes namespace for deployments
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* GPU Operator */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Cpu className="h-5 w-5" />
+            NVIDIA GPU Operator
+          </CardTitle>
+          <CardDescription>
+            Install the NVIDIA GPU Operator to enable GPU support in your cluster
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Prerequisites check */}
+          {(!clusterStatus?.connected || !helmStatus?.available) && (
+            <div className="rounded-lg bg-yellow-50 dark:bg-yellow-950 p-3 text-sm text-yellow-800 dark:text-yellow-200">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="h-4 w-4" />
+                <span className="font-medium">Prerequisites not met</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                {!clusterStatus?.connected && (
+                  <li>Kubernetes cluster not connected</li>
+                )}
+                {!helmStatus?.available && (
+                  <li>Helm CLI not available</li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {/* GPU Status Display */}
+          {gpuStatusLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Checking GPU status...</span>
+            </div>
+          ) : gpuOperatorStatus?.gpusAvailable ? (
+            // GPUs are already available
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">GPU Status</span>
+                <Badge variant="default" className="bg-green-500">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  GPUs Enabled
+                </Badge>
+              </div>
+              <div className="rounded-lg bg-green-50 dark:bg-green-950 p-3 text-sm text-green-800 dark:text-green-200">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  <span>{gpuOperatorStatus.message}</span>
+                </div>
+                {gpuOperatorStatus.gpuNodes.length > 0 && (
+                  <div className="mt-2 text-xs">
+                    Nodes: {gpuOperatorStatus.gpuNodes.join(', ')}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : gpuOperatorStatus?.installed ? (
+            // Operator installed but no GPUs detected
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">GPU Status</span>
+                <Badge variant="secondary">
+                  <AlertCircle className="h-3 w-3 mr-1" />
+                  Operator Installed
+                </Badge>
+              </div>
+              <div className="rounded-lg bg-yellow-50 dark:bg-yellow-950 p-3 text-sm text-yellow-800 dark:text-yellow-200">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{gpuOperatorStatus.message}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Not installed - show install option
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="gpu-operator-switch">Enable GPU Operator</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatically installs the NVIDIA GPU Operator via Helm
+                  </p>
+                </div>
+                <Switch
+                  id="gpu-operator-switch"
+                  checked={false}
+                  disabled={!clusterStatus?.connected || !helmStatus?.available || isInstallingGpu}
+                  onCheckedChange={async (checked) => {
+                    if (checked) {
+                      setIsInstallingGpu(true)
+                      try {
+                        const result = await installGpuOperator.mutateAsync()
+                        if (result.success) {
+                          toast({
+                            title: 'GPU Operator Installed',
+                            description: result.message,
+                          })
+                          refetchGpuStatus()
+                        }
+                      } catch (error) {
+                        toast({
+                          title: 'Installation Failed',
+                          description: error instanceof Error ? error.message : 'Unknown error',
+                          variant: 'destructive',
+                        })
+                      } finally {
+                        setIsInstallingGpu(false)
+                      }
+                    }
+                  }}
+                />
+              </div>
+
+              {isInstallingGpu && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Installing GPU Operator... This may take several minutes.</span>
+                </div>
+              )}
+
+              {/* Manual installation commands */}
+              {gpuOperatorStatus?.helmCommands && gpuOperatorStatus.helmCommands.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-sm font-medium">Manual Installation</span>
+                  <div className="space-y-1">
+                    {gpuOperatorStatus.helmCommands.map((cmd, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <code className="flex-1 rounded bg-muted px-3 py-2 text-xs font-mono">
+                          {cmd}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(cmd)
+                            toast({
+                              title: 'Copied',
+                              description: 'Command copied to clipboard',
+                            })
+                          }}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

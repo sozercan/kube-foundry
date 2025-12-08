@@ -8,7 +8,10 @@ import { baseDeploymentConfigSchema } from '../types';
 export const kuberayDeploymentConfigSchema = baseDeploymentConfigSchema.extend({
   // Override engine to only allow vllm for KubeRay (Ray Serve uses vLLM backend)
   engine: z.enum(['vllm']).default('vllm'),
-  
+
+  // Override enforceEager with same default as base schema
+  enforceEager: z.boolean().default(true).describe('Use eager mode for faster startup (disables CUDA graphs)'),
+
   // KubeRay-specific fields
   acceleratorType: z.string().optional().describe('GPU accelerator type (e.g., A100, H100)'),
   tensorParallelSize: z.number().int().min(1).default(1).describe('Number of GPUs for tensor parallelism'),
@@ -16,18 +19,18 @@ export const kuberayDeploymentConfigSchema = baseDeploymentConfigSchema.extend({
   gpuMemoryUtilization: z.number().min(0.1).max(1.0).default(0.9).describe('Fraction of GPU memory to use'),
   maxNumSeqs: z.number().int().min(1).default(40).describe('Maximum number of sequences to process'),
   enableChunkedPrefill: z.boolean().default(true).describe('Enable chunked prefill for better memory efficiency'),
-  
+
   // Ray-specific settings
   rayImage: z.string().default('rayproject/ray-llm:2.52.0-py311-cu128').describe('Ray LLM Docker image'),
   headCpu: z.string().default('4').describe('CPU cores for Ray head node'),
   headMemory: z.string().default('32Gi').describe('Memory for Ray head node'),
   workerCpu: z.string().default('8').describe('CPU cores for Ray worker nodes'),
   workerMemory: z.string().default('64Gi').describe('Memory for Ray worker nodes'),
-  
+
   // Autoscaling
   minReplicas: z.number().int().min(1).default(1).describe('Minimum number of worker replicas'),
   maxReplicas: z.number().int().min(1).default(2).describe('Maximum number of worker replicas'),
-  
+
   // Disaggregated mode settings (P/D disaggregation)
   kvConnector: z.enum(['NixlConnector', 'SimpleConnector']).default('NixlConnector').describe('KV cache connector type'),
 });

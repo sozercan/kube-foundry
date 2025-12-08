@@ -2,6 +2,21 @@ import { spawn } from 'child_process';
 import type { HelmRepo, HelmChart } from '../providers/types';
 
 /**
+ * NVIDIA GPU Operator Helm configuration
+ */
+export const GPU_OPERATOR_REPO: HelmRepo = {
+  name: 'nvidia',
+  url: 'https://helm.ngc.nvidia.com/nvidia',
+};
+
+export const GPU_OPERATOR_CHART: HelmChart = {
+  name: 'gpu-operator',
+  chart: 'nvidia/gpu-operator',
+  namespace: 'gpu-operator',
+  createNamespace: true,
+};
+
+/**
  * Result of a Helm command execution
  */
 export interface HelmResult {
@@ -334,6 +349,22 @@ class HelmService {
     }
 
     return commands;
+  }
+
+  /**
+   * Install the NVIDIA GPU Operator
+   */
+  async installGpuOperator(
+    onStream?: StreamCallback
+  ): Promise<{ success: boolean; results: Array<{ step: string; result: HelmResult }> }> {
+    return this.installProvider([GPU_OPERATOR_REPO], [GPU_OPERATOR_CHART], onStream);
+  }
+
+  /**
+   * Get the Helm commands for GPU Operator installation
+   */
+  getGpuOperatorCommands(): string[] {
+    return this.getInstallCommands([GPU_OPERATOR_REPO], [GPU_OPERATOR_CHART]);
   }
 }
 

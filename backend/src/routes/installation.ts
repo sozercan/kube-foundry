@@ -20,6 +20,84 @@ router.get('/helm/status', async (req: Request, res: Response, next: NextFunctio
 });
 
 /**
+ * GET /api/installation/gpu-operator/status
+ * Check GPU Operator installation status and GPU availability
+ */
+router.get('/gpu-operator/status', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const status = await kubernetesService.checkGPUOperatorStatus();
+    const helmCommands = helmService.getGpuOperatorCommands();
+    
+    res.json({
+      ...status,
+      helmCommands,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/installation/gpu-operator/install
+ * Install the NVIDIA GPU Operator using Helm
+ */
+router.post('/gpu-operator/install', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Check if Helm is available
+    const helmStatus = await helmService.checkHelmAvailable();
+    if (!helmStatus.available) {
+      throw createError(
+        `Helm CLI not available: ${helmStatus.error}. Please install Helm or use the manual installation commands.`,
+        400
+      );
+    }
+
+    // Check if already installed
+    const currentStatus = await kubernetesService.checkGPUOperatorStatus();
+    if (currentStatus.installed) {
+      res.json({
+        success: true,
+        message: 'NVIDIA GPU Operator is already installed',
+        alreadyInstalled: true,
+        status: currentStatus,
+      });
+      return;
+    }
+
+    // Install GPU Operator
+    console.log('[Installation] Starting installation of NVIDIA GPU Operator');
+    const result = await helmService.installGpuOperator((data, stream) => {
+      console.log(`[Helm ${stream}] ${data}`);
+    });
+
+    if (result.success) {
+      // Verify installation
+      const verifyStatus = await kubernetesService.checkGPUOperatorStatus();
+      
+      res.json({
+        success: true,
+        message: 'NVIDIA GPU Operator installed successfully',
+        status: verifyStatus,
+        results: result.results.map(r => ({
+          step: r.step,
+          success: r.result.success,
+          output: r.result.stdout,
+          error: r.result.stderr,
+        })),
+      });
+    } else {
+      const failedStep = result.results.find(r => !r.result.success);
+      throw createError(
+        `Installation failed at step "${failedStep?.step}": ${failedStep?.result.stderr}`,
+        500
+      );
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /api/installation/providers/:id/status
  * Check installation status for a provider
  */

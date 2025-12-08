@@ -76,6 +76,7 @@ export class KubeRayProvider implements Provider {
                   max_model_len: config.contextLength || 16384,
                   enable_chunked_prefill: config.enableChunkedPrefill ?? true,
                   enable_prefix_caching: config.enablePrefixCaching ?? true,
+                  enforce_eager: config.enforceEager ?? true,
                   ...(config.trustRemoteCode && { trust_remote_code: true }),
                 },
               },
@@ -145,6 +146,7 @@ export class KubeRayProvider implements Provider {
                 max_model_len: config.contextLength || 16384,
                 enable_chunked_prefill: config.enableChunkedPrefill ?? true,
                 enable_prefix_caching: config.enablePrefixCaching ?? true,
+                enforce_eager: config.enforceEager ?? true,
               },
               kv_transfer_config: {
                 kv_connector: kvConnector,
@@ -175,6 +177,7 @@ export class KubeRayProvider implements Provider {
                 max_model_len: config.contextLength || 16384,
                 enable_chunked_prefill: config.enableChunkedPrefill ?? true,
                 enable_prefix_caching: config.enablePrefixCaching ?? true,
+                enforce_eager: config.enforceEager ?? true,
               },
               kv_transfer_config: {
                 kv_connector: kvConnector,

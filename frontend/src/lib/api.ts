@@ -268,3 +268,37 @@ export const installationApi = {
       method: 'POST',
     }),
 }
+
+// GPU Operator API
+export interface GPUOperatorStatus {
+  installed: boolean;
+  crdFound: boolean;
+  operatorRunning: boolean;
+  gpusAvailable: boolean;
+  totalGPUs: number;
+  gpuNodes: string[];
+  message: string;
+  helmCommands: string[];
+}
+
+export interface GPUOperatorInstallResult {
+  success: boolean;
+  message: string;
+  alreadyInstalled?: boolean;
+  status?: GPUOperatorStatus;
+  results?: Array<{
+    step: string;
+    success: boolean;
+    output: string;
+    error?: string;
+  }>;
+}
+
+export const gpuOperatorApi = {
+  getStatus: () => request<GPUOperatorStatus>('/installation/gpu-operator/status'),
+  
+  install: () =>
+    request<GPUOperatorInstallResult>('/installation/gpu-operator/install', {
+      method: 'POST',
+    }),
+}

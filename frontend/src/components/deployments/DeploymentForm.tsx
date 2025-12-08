@@ -174,27 +174,30 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Router Mode</Label>
-              <RadioGroup
-                value={config.routerMode}
-                onValueChange={(value) => updateConfig('routerMode', value as RouterMode)}
-                className="flex gap-4"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="none" id="router-none" />
-                  <Label htmlFor="router-none" className="cursor-pointer">None</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="kv" id="router-kv" />
-                  <Label htmlFor="router-kv" className="cursor-pointer">KV-Aware</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="round-robin" id="router-rr" />
-                  <Label htmlFor="router-rr" className="cursor-pointer">Round Robin</Label>
-                </div>
-              </RadioGroup>
-            </div>
+            {/* Router Mode is only applicable to Dynamo provider */}
+            {settings?.activeProvider?.id === 'dynamo' && (
+              <div className="space-y-2">
+                <Label>Router Mode</Label>
+                <RadioGroup
+                  value={config.routerMode}
+                  onValueChange={(value) => updateConfig('routerMode', value as RouterMode)}
+                  className="flex gap-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="none" id="router-none" />
+                    <Label htmlFor="router-none" className="cursor-pointer">None</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="kv" id="router-kv" />
+                    <Label htmlFor="router-kv" className="cursor-pointer">KV-Aware</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="round-robin" id="router-rr" />
+                    <Label htmlFor="router-rr" className="cursor-pointer">Round Robin</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
