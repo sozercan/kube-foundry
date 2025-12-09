@@ -96,6 +96,31 @@ Settings are managed through the **Settings** page in the UI:
 - **Default Namespace**: Kubernetes namespace for deployments
 - **HuggingFace Secret**: Name of the Kubernetes secret containing your HF token
 
+## Authentication (Optional)
+
+KubeFoundry supports optional authentication using your existing kubeconfig OIDC credentials.
+
+### Enable Authentication
+
+```bash
+AUTH_ENABLED=true ./kubefoundry
+```
+
+### Login
+
+```bash
+# Login using current kubeconfig context
+kubefoundry login
+
+# Login to a specific server
+kubefoundry login --server https://kubefoundry.example.com
+
+# Use a specific kubeconfig context
+kubefoundry login --context my-aks-cluster
+```
+
+The login command extracts your OIDC token from kubeconfig and opens your browser automatically.
+
 ## Troubleshooting
 
 ### Provider not detected as installed

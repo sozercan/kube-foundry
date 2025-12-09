@@ -47,8 +47,24 @@ export interface AppConfig {
   defaultNamespace?: string;
 }
 
+/**
+ * Authentication configuration exposed to frontend
+ */
+export interface AuthConfig {
+  enabled: boolean;
+}
+
+/**
+ * User information from authenticated token
+ */
+export interface UserInfo {
+  username: string;
+  groups?: string[];
+}
+
 export interface Settings {
   config: AppConfig;
   providers: ProviderInfo[];
   activeProvider: ProviderInfo | null;
+  auth: AuthConfig;
 }

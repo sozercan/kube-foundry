@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { kubernetesService } from './services/kubernetes';
 import { configService } from './services/config';
 import { helmService } from './services/helm';
+import { authService } from './services/auth';
 import { providerRegistry, listProviderInfo } from './providers';
 import { validateGpuFit, formatGpuWarnings } from './services/gpuValidation';
 import models from './data/models.json';
@@ -23,6 +24,7 @@ import {
   namespaceSchema,
   resourceNameSchema,
 } from './lib/validation';
+import type { UserInfo } from '@kubefoundry/shared';
 
 // Load static files at startup
 await loadStaticFiles();
@@ -146,6 +148,9 @@ const settings = new Hono()
             defaultNamespace: activeProvider.defaultNamespace,
           }
         : null,
+      auth: {
+        enabled: authService.isAuthEnabled(),
+      },
     });
   })
   .put('/', zValidator('json', updateSettingsSchema), async (c) => {
@@ -635,6 +640,59 @@ app.use(
 app.use('*', async (c, next) => {
   logger.info({ method: c.req.method, url: c.req.url }, `${c.req.method} ${c.req.path}`);
   await next();
+});
+
+// ============================================================================
+// Auth Middleware
+// ============================================================================
+
+// Routes that don't require authentication
+const PUBLIC_ROUTES = [
+  '/api/health',
+  '/api/cluster/status',
+  '/api/settings',  // Settings is public (read-only auth config needed by frontend)
+];
+
+// Auth middleware for protected API routes
+app.use('/api/*', async (c, next) => {
+  // Skip auth if not enabled
+  if (!authService.isAuthEnabled()) {
+    return next();
+  }
+
+  // Skip auth for public routes
+  const path = c.req.path;
+  if (PUBLIC_ROUTES.some(route => path === route || path.startsWith(route + '/'))) {
+    return next();
+  }
+
+  // Extract bearer token
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return c.json(
+      { error: { message: 'Authentication required', statusCode: 401 } },
+      401
+    );
+  }
+
+  const token = authHeader.slice(7); // Remove 'Bearer ' prefix
+
+  // Validate token via Kubernetes TokenReview
+  const result = await authService.validateToken(token);
+  
+  if (!result.valid) {
+    logger.warn({ error: result.error }, 'Token validation failed');
+    return c.json(
+      { error: { message: result.error || 'Invalid token', statusCode: 401 } },
+      401
+    );
+  }
+
+  // Attach user info to context for logging/audit
+  c.set('user', result.user as UserInfo);
+  logger.debug({ username: result.user?.username }, 'Authenticated request');
+
+  return next();
 });
 
 // API Routes

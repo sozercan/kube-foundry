@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import app from './hono-app';
 
 describe('Hono Routes', () => {
@@ -57,6 +57,14 @@ describe('Hono Routes', () => {
       expect(data.providers).toBeDefined();
     });
 
+    test('GET /api/settings returns auth config', async () => {
+      const res = await app.request('/api/settings');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.auth).toBeDefined();
+      expect(typeof data.auth.enabled).toBe('boolean');
+    });
+
     test('GET /api/settings/providers returns providers list', async () => {
       const res = await app.request('/api/settings/providers');
       expect(res.status).toBe(200);
@@ -83,6 +91,63 @@ describe('Hono Routes', () => {
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data.available).toBeDefined();
+    });
+  });
+
+  describe('Auth Middleware', () => {
+    const originalEnv = process.env.AUTH_ENABLED;
+
+    afterEach(() => {
+      if (originalEnv !== undefined) {
+        process.env.AUTH_ENABLED = originalEnv;
+      } else {
+        delete process.env.AUTH_ENABLED;
+      }
+    });
+
+    test('public routes work without auth when AUTH_ENABLED=true', async () => {
+      process.env.AUTH_ENABLED = 'true';
+      
+      // Health endpoint should be public
+      const healthRes = await app.request('/api/health');
+      expect(healthRes.status).toBe(200);
+
+      // Cluster status should be public
+      const clusterRes = await app.request('/api/cluster/status');
+      expect([200, 500]).toContain(clusterRes.status); // May fail without k8s
+
+      // Settings should be public (frontend needs to check auth config)
+      const settingsRes = await app.request('/api/settings');
+      expect([200, 500]).toContain(settingsRes.status);
+    });
+
+    test('protected routes work without auth when AUTH_ENABLED=false', async () => {
+      process.env.AUTH_ENABLED = 'false';
+      
+      // Models endpoint should work without auth
+      const res = await app.request('/api/models');
+      expect(res.status).toBe(200);
+    });
+
+    test('protected routes require auth when AUTH_ENABLED=true', async () => {
+      process.env.AUTH_ENABLED = 'true';
+      
+      // Models endpoint should require auth
+      const res = await app.request('/api/models');
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error.message).toBe('Authentication required');
+    });
+
+    test('invalid bearer token returns 401', async () => {
+      process.env.AUTH_ENABLED = 'true';
+      
+      const res = await app.request('/api/models', {
+        headers: {
+          'Authorization': 'Bearer invalid-token',
+        },
+      });
+      expect(res.status).toBe(401);
     });
   });
 

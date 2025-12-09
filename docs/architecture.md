@@ -12,11 +12,49 @@ KubeFoundry is a monorepo with three packages:
 │   Browser   │────▶│   Backend   │────▶│   Kubernetes     │
 │  (React)    │◀────│   (Hono)    │◀────│   Cluster        │
 └─────────────┘     └─────────────┘     └──────────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │  Provider   │
-                    │  Registry   │
+       │                   │
+       │            ┌──────┴──────┐
+       │            │  Provider   │
+       │            │  Registry   │
+       │            └─────────────┘
+       │
+       │  (when AUTH_ENABLED=true)
+       │            ┌─────────────┐
+       └───────────▶│ Auth        │───▶ TokenReview API
+                    │ Middleware  │
                     └─────────────┘
+```
+
+## Authentication Flow
+
+When `AUTH_ENABLED=true`, the system uses Kubernetes OIDC tokens:
+
+```
+┌──────────┐    kubefoundry login    ┌─────────────┐
+│   CLI    │ ───────────────────────▶│  kubeconfig │
+│          │◀───────────────────────│  (OIDC)     │
+└────┬─────┘    extract token        └─────────────┘
+     │
+     │ open browser with #token=...
+     ▼
+┌──────────┐    save to localStorage  ┌─────────────┐
+│ Browser  │ ────────────────────────▶│  Frontend   │
+│          │                          │  (React)    │
+└──────────┘                          └──────┬──────┘
+                                             │
+              Authorization: Bearer <token>  │
+                                             ▼
+                                      ┌─────────────┐
+                                      │  Backend    │
+                                      │  (Hono)     │
+                                      └──────┬──────┘
+                                             │
+                          TokenReview API    │
+                                             ▼
+                                      ┌─────────────┐
+                                      │  Kubernetes │
+                                      │  API Server │
+                                      └─────────────┘
 ```
 
 ## Provider Abstraction
@@ -163,3 +201,10 @@ Handles Helm CLI operations:
 - Add/update repositories
 - Install/upgrade/uninstall charts
 - Install NVIDIA GPU Operator (`gpu-operator` namespace)
+
+### AuthService
+Handles authentication when `AUTH_ENABLED=true`:
+- Validate tokens via Kubernetes TokenReview API
+- Extract OIDC tokens from kubeconfig (for CLI login)
+- Generate magic link URLs for browser authentication
+- Store/load/clear credentials locally (`~/.kubefoundry/credentials.json`)

@@ -3,6 +3,27 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 console.log('[API] API_BASE:', API_BASE);
 
+// Auth token storage key
+const AUTH_TOKEN_KEY = 'kubefoundry_auth_token';
+
+/**
+ * Get the stored auth token
+ */
+function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dispatch unauthorized event to trigger logout
+ */
+function dispatchUnauthorized(): void {
+  window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+}
+
 // ============================================================================
 // Re-export types from @kubefoundry/shared
 // ============================================================================
@@ -81,16 +102,31 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}/api${endpoint}`;
   console.log('[API] Fetching:', url);
 
+  // Build headers with auth token if available
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(options?.headers || {}),
+  };
+
+  const token = getAuthToken();
+  if (token) {
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-    },
     ...options,
+    headers,
   });
 
   console.log('[API] Response status:', response.status, 'for', url);
 
   if (!response.ok) {
+    // Handle 401 Unauthorized - dispatch event to trigger logout
+    if (response.status === 401) {
+      console.warn('[API] Unauthorized - dispatching auth:unauthorized event');
+      dispatchUnauthorized();
+    }
+
     const error = await response.json().catch(() => ({ message: 'Unknown error' }));
     console.error('[API] Error response:', error);
     throw new ApiError(

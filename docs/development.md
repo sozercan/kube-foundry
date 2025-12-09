@@ -53,6 +53,65 @@ VITE_DEFAULT_HF_SECRET=hf-token-secret
 PORT=3001
 DEFAULT_NAMESPACE=kubefoundry
 CORS_ORIGIN=http://localhost:5173
+AUTH_ENABLED=false
+```
+
+## Authentication
+
+KubeFoundry supports optional authentication using Kubernetes OIDC tokens from your kubeconfig.
+
+### Enabling Authentication
+
+Set the `AUTH_ENABLED` environment variable:
+
+```bash
+AUTH_ENABLED=true ./dist/kubefoundry
+```
+
+### Login Flow
+
+1. **Run the login command:**
+   ```bash
+   kubefoundry login
+   ```
+   This extracts your OIDC token from kubeconfig and opens the browser with a magic link.
+
+2. **Alternative: Specify server URL:**
+   ```bash
+   kubefoundry login --server https://kubefoundry.example.com
+   ```
+
+3. **Use a specific kubeconfig context:**
+   ```bash
+   kubefoundry login --context my-cluster
+   ```
+
+### How It Works
+
+- The CLI extracts the OIDC `id-token` from your kubeconfig
+- Opens your browser with a URL containing the token in the fragment (`#token=...`)
+- The frontend saves the token to localStorage
+- All API requests include the token in the `Authorization: Bearer` header
+- The backend validates tokens using Kubernetes `TokenReview` API
+
+### Public Routes (No Auth Required)
+
+These routes are accessible without authentication:
+- `GET /api/health` - Health check
+- `GET /api/cluster/status` - Cluster connection status
+- `GET /api/settings` - Settings (includes `auth.enabled` for frontend)
+
+### CLI Commands
+
+```bash
+kubefoundry                    # Start server (default)
+kubefoundry serve              # Start server
+kubefoundry login              # Login with kubeconfig credentials
+kubefoundry login --server URL # Login to specific server
+kubefoundry login --context X  # Use specific kubeconfig context
+kubefoundry logout             # Clear stored credentials
+kubefoundry version            # Show version
+kubefoundry help               # Show help
 ```
 
 ## Project Commands
