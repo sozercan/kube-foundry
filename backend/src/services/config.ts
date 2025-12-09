@@ -1,5 +1,6 @@
 import * as k8s from '@kubernetes/client-node';
 import { providerRegistry } from '../providers';
+import logger from '../lib/logger';
 
 /**
  * Application configuration stored in Kubernetes ConfigMap
@@ -29,7 +30,7 @@ class ConfigService {
     try {
       this.kc.loadFromDefault();
     } catch {
-      console.warn('No kubeconfig found for ConfigService');
+      logger.warn('No kubeconfig found for ConfigService');
     }
 
     this.coreV1Api = this.kc.makeApiClient(k8s.CoreV1Api);
@@ -65,7 +66,7 @@ class ConfigService {
             },
           },
         });
-        console.log(`Created namespace '${CONFIG_NAMESPACE}'`);
+        logger.info({ namespace: CONFIG_NAMESPACE }, `Created namespace '${CONFIG_NAMESPACE}'`);
       } else {
         throw error;
       }
@@ -98,9 +99,9 @@ class ConfigService {
       const k8sError = error as { response?: { statusCode?: number } };
       if (k8sError?.response?.statusCode === 404) {
         // ConfigMap doesn't exist, use defaults
-        console.log('ConfigMap not found, using default configuration');
+        logger.debug('ConfigMap not found, using default configuration');
       } else {
-        console.error('Error reading ConfigMap:', error);
+        logger.error({ error }, 'Error reading ConfigMap');
       }
     }
 
@@ -168,7 +169,7 @@ class ConfigService {
       this.cachedConfig = newConfig;
       return newConfig;
     } catch (error) {
-      console.error('Error saving ConfigMap:', error);
+      logger.error({ error }, 'Error saving ConfigMap');
       throw new Error(`Failed to save configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

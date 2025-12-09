@@ -13,6 +13,7 @@ export interface Model {
   license?: string
   supportedEngines: Array<'vllm' | 'sglang' | 'trtllm'>
   minGpuMemory?: string
+  minGpus?: number
 }
 
 export interface DeploymentConfig {
@@ -136,6 +137,18 @@ export interface Settings {
   activeProvider: ProviderInfo | null;
 }
 
+export interface Pagination {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export interface DeploymentsListResponse {
+  deployments: DeploymentStatus[];
+  pagination: Pagination;
+}
+
 class ApiError extends Error {
   constructor(public statusCode: number, message: string) {
     super(message)
@@ -173,10 +186,14 @@ export const modelsApi = {
 
 // Deployments API
 export const deploymentsApi = {
-  list: (namespace?: string) =>
-    request<{ deployments: DeploymentStatus[] }>(
-      `/deployments${namespace ? `?namespace=${encodeURIComponent(namespace)}` : ''}`
-    ),
+  list: (namespace?: string, options?: { limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (namespace) params.set('namespace', namespace);
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.offset) params.set('offset', options.offset.toString());
+    const query = params.toString();
+    return request<DeploymentsListResponse>(`/deployments${query ? `?${query}` : ''}`);
+  },
 
   get: (name: string, namespace?: string) =>
     request<DeploymentStatus>(
@@ -310,6 +327,21 @@ export interface GPUOperatorInstallResult {
   }>;
 }
 
+export interface NodeGpuInfo {
+  nodeName: string;
+  totalGpus: number;
+  allocatedGpus: number;
+  availableGpus: number;
+}
+
+export interface ClusterGpuCapacity {
+  totalGpus: number;
+  allocatedGpus: number;
+  availableGpus: number;
+  maxContiguousAvailable: number;
+  nodes: NodeGpuInfo[];
+}
+
 export const gpuOperatorApi = {
   getStatus: () => request<GPUOperatorStatus>('/installation/gpu-operator/status'),
   
@@ -317,4 +349,6 @@ export const gpuOperatorApi = {
     request<GPUOperatorInstallResult>('/installation/gpu-operator/install', {
       method: 'POST',
     }),
+
+  getCapacity: () => request<ClusterGpuCapacity>('/installation/gpu-capacity'),
 }

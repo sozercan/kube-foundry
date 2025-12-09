@@ -1,76 +1,46 @@
 # KubeFoundry - Agent Instructions
 
-This document provides context for AI agents working on the KubeFoundry codebase.
+## WHY: Project Purpose
 
-## Project Overview
+**KubeFoundry** is a web-based platform for deploying and managing machine learning models on Kubernetes. It simplifies ML operations by providing a unified interface for multiple inference runtimes.
 
-**KubeFoundry** is a web-based platform for deploying and managing machine learning models on Kubernetes. It uses a provider abstraction pattern to support multiple inference runtimes (NVIDIA Dynamo, KubeRay, etc.).
+## WHAT: Tech Stack & Structure
 
-## Quick Reference
+**Stack**: React 18 + TypeScript + Vite (frontend) | Node.js + Express + Zod (backend) | Monorepo with shared types
 
-| Area | Documentation |
-|------|---------------|
-| Architecture | [docs/architecture.md](docs/architecture.md) |
-| API Reference | [docs/api.md](docs/api.md) |
-| Development Guide | [docs/development.md](docs/development.md) |
-| Coding Standards | [docs/standards.md](docs/standards.md) |
+**Key directories**:
+- `frontend/src/` - React components, hooks, pages
+- `backend/src/` - Express routes, providers, services
+- `shared/types/` - Shared TypeScript definitions
+- `docs/` - Detailed documentation (read as needed)
 
-## Tech Stack
+**Core pattern**: Provider abstraction - all inference runtime logic lives in `backend/src/providers/`. Each provider implements the `Provider` interface in `backend/src/providers/types.ts`.
 
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query
-- **Backend**: Node.js, Express, @kubernetes/client-node, Zod
-- **Shared**: TypeScript types in monorepo workspace
+## HOW: Development Commands
 
-## Project Structure
-
-```
-kubefoundry/
-├── dist/                 # Compiled single binary output
-│   └── kubefoundry       # Single executable (frontend + backend)
-├── frontend/src/
-│   ├── components/       # UI components (layout/, models/, deployments/, ui/)
-│   ├── pages/            # Page components
-│   ├── hooks/            # React hooks for API calls
-│   └── lib/              # API client and utilities
-├── backend/
-│   ├── scripts/          # Build scripts (embed-assets.ts)
-│   └── src/
-│       ├── providers/    # Provider implementations (dynamo/, kuberay/)
-│       ├── routes/       # Express API routes
-│       ├── services/     # Core services (kubernetes, config, helm)
-│       └── static.ts     # Static file serving (embedded/filesystem)
-└── shared/types/         # Shared TypeScript types
+```bash
+bun install              # Install dependencies
+bun run dev              # Start dev servers (frontend + backend)
+bun run test             # Run all tests (frontend + backend)
+make compile             # Build single binary to dist/
 ```
 
-## Key Concepts
+**Always run `bun run test` after implementing functionality to verify both frontend and backend changes.**
 
-### Provider Pattern
-All inference runtime logic is encapsulated in provider implementations:
-- Each provider implements the `Provider` interface
-- Providers handle CRD generation, status parsing, and installation
-- Active provider is stored in Kubernetes ConfigMap
+## Documentation (Progressive Disclosure)
 
-### Data Flow
-1. Frontend calls backend REST API
-2. Backend uses active provider to generate/parse Kubernetes resources
-3. Kubernetes resources are applied via @kubernetes/client-node
+Read these files **only when relevant** to your task:
 
-## Current Status
+| File | When to read |
+|------|--------------|
+| [docs/architecture.md](docs/architecture.md) | Understanding system design, provider pattern, data flow |
+| [docs/api.md](docs/api.md) | Working on REST endpoints or API client |
+| [docs/development.md](docs/development.md) | Setup issues, build process, testing |
+| [docs/standards.md](docs/standards.md) | Code style questions (prefer running linters instead) |
 
-| Feature | Status |
-|---------|--------|
-| NVIDIA Dynamo Provider | ✅ Complete |
-| Installation System | ✅ Complete |
-| Model Catalog | ✅ Complete |
-| Deployment Management | ✅ Complete |
-| KubeRay Provider | ✅ Complete |
+## Key Files Reference
 
-## Important Files
-
-- `backend/src/providers/types.ts` - Provider interface definition
-- `backend/src/providers/index.ts` - Provider registry
-- `backend/src/services/kubernetes.ts` - Kubernetes API client
-- `backend/src/static.ts` - Static file serving with embedded assets support
-- `backend/scripts/embed-assets.ts` - Generates embedded frontend assets module
-- `frontend/src/lib/api.ts` - Frontend API client
-- `shared/types/` - Shared type definitions
+- Provider interface: `backend/src/providers/types.ts`
+- Provider registry: `backend/src/providers/index.ts`
+- Kubernetes client: `backend/src/services/kubernetes.ts`
+- Frontend API client: `frontend/src/lib/api.ts`

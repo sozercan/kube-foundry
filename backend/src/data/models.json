@@ -8,7 +8,8 @@
       "task": "text-generation",
       "contextLength": 32768,
       "supportedEngines": ["vllm", "sglang", "trtllm"],
-      "minGpuMemory": "4GB"
+      "minGpuMemory": "4GB",
+      "minGpus": 1
     },
     {
       "id": "Qwen/Qwen2.5-1.5B-Instruct",
@@ -18,7 +19,8 @@
       "task": "chat",
       "contextLength": 32768,
       "supportedEngines": ["vllm", "sglang", "trtllm"],
-      "minGpuMemory": "6GB"
+      "minGpuMemory": "6GB",
+      "minGpus": 1
     },
     {
       "id": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
@@ -28,7 +30,8 @@
       "task": "chat",
       "contextLength": 16384,
       "supportedEngines": ["vllm", "sglang"],
-      "minGpuMemory": "16GB"
+      "minGpuMemory": "16GB",
+      "minGpus": 1
     },
     {
       "id": "meta-llama/Llama-3.2-1B-Instruct",
@@ -38,7 +41,8 @@
       "task": "chat",
       "contextLength": 131072,
       "supportedEngines": ["vllm", "sglang", "trtllm"],
-      "minGpuMemory": "4GB"
+      "minGpuMemory": "4GB",
+      "minGpus": 1
     },
     {
       "id": "meta-llama/Llama-3.2-3B-Instruct",
@@ -48,7 +52,8 @@
       "task": "chat",
       "contextLength": 131072,
       "supportedEngines": ["vllm", "sglang", "trtllm"],
-      "minGpuMemory": "8GB"
+      "minGpuMemory": "8GB",
+      "minGpus": 1
     },
     {
       "id": "mistralai/Mistral-7B-Instruct-v0.3",
@@ -58,7 +63,8 @@
       "task": "chat",
       "contextLength": 32768,
       "supportedEngines": ["vllm", "sglang", "trtllm"],
-      "minGpuMemory": "16GB"
+      "minGpuMemory": "16GB",
+      "minGpus": 1
     },
     {
       "id": "microsoft/Phi-3-mini-4k-instruct",
@@ -68,7 +74,8 @@
       "task": "chat",
       "contextLength": 4096,
       "supportedEngines": ["vllm", "sglang"],
-      "minGpuMemory": "8GB"
+      "minGpuMemory": "8GB",
+      "minGpus": 1
     },
     {
       "id": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
@@ -78,7 +85,8 @@
       "task": "chat",
       "contextLength": 2048,
       "supportedEngines": ["vllm", "sglang", "trtllm"],
-      "minGpuMemory": "4GB"
+      "minGpuMemory": "4GB",
+      "minGpus": 1
     }
   ]
 }

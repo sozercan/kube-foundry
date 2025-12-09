@@ -12,4 +12,5 @@ export interface Model {
   license?: string;              // Model license
   supportedEngines: Engine[];    // Compatible inference engines
   minGpuMemory?: string;         // Minimum GPU memory (e.g., "8GB")
+  minGpus?: number;              // Minimum GPUs required to run (default: 1)
 }

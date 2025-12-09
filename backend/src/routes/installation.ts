@@ -3,6 +3,7 @@ import { helmService } from '../services/helm';
 import { kubernetesService } from '../services/kubernetes';
 import { providerRegistry } from '../providers';
 import { createError } from '../middleware/errorHandler';
+import logger from '../lib/logger';
 
 const router = Router();
 
@@ -38,6 +39,19 @@ router.get('/gpu-operator/status', async (req: Request, res: Response, next: Nex
 });
 
 /**
+ * GET /api/installation/gpu-capacity
+ * Get detailed GPU capacity including per-node availability
+ */
+router.get('/gpu-capacity', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const capacity = await kubernetesService.getClusterGpuCapacity();
+    res.json(capacity);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /api/installation/gpu-operator/install
  * Install the NVIDIA GPU Operator using Helm
  */
@@ -65,9 +79,9 @@ router.post('/gpu-operator/install', async (req: Request, res: Response, next: N
     }
 
     // Install GPU Operator
-    console.log('[Installation] Starting installation of NVIDIA GPU Operator');
+    logger.info('Starting installation of NVIDIA GPU Operator');
     const result = await helmService.installGpuOperator((data, stream) => {
-      console.log(`[Helm ${stream}] ${data}`);
+      logger.debug({ stream }, data.trim());
     });
 
     if (result.success) {
@@ -191,12 +205,12 @@ router.post('/providers/:id/install', async (req: Request, res: Response, next: 
     }
 
     // Install provider
-    console.log(`[Installation] Starting installation of ${provider.name}`);
+    logger.info({ providerId: id, providerName: provider.name }, `Starting installation of ${provider.name}`);
     const result = await helmService.installProvider(
       provider.getHelmRepos(),
       provider.getHelmCharts(),
       (data, stream) => {
-        console.log(`[Helm ${stream}] ${data}`);
+        logger.debug({ stream }, data.trim());
       }
     );
 
@@ -252,7 +266,7 @@ router.post('/providers/:id/upgrade', async (req: Request, res: Response, next: 
     const charts = provider.getHelmCharts();
     const repos = provider.getHelmRepos();
 
-    console.log(`[Installation] Starting upgrade of ${provider.name}`);
+    logger.info({ providerId: id, providerName: provider.name }, `Starting upgrade of ${provider.name}`);
 
     // Add/update repos first
     for (const repo of repos) {
@@ -265,7 +279,7 @@ router.post('/providers/:id/upgrade', async (req: Request, res: Response, next: 
     
     for (const chart of charts) {
       const result = await helmService.upgrade(chart, (data, stream) => {
-        console.log(`[Helm ${stream}] ${data}`);
+        logger.debug({ stream }, data.trim());
       });
       
       results.push({
@@ -321,14 +335,14 @@ router.post('/providers/:id/uninstall', async (req: Request, res: Response, next
     const provider = providerRegistry.getProvider(id);
     const charts = provider.getHelmCharts();
 
-    console.log(`[Installation] Starting uninstall of ${provider.name}`);
+    logger.info({ providerId: id, providerName: provider.name }, `Starting uninstall of ${provider.name}`);
 
     const results: Array<{ chart: string; success: boolean; output: string; error?: string }> = [];
 
     // Uninstall each chart in reverse order
     for (const chart of [...charts].reverse()) {
       const result = await helmService.uninstall(chart.name, chart.namespace, (data, stream) => {
-        console.log(`[Helm ${stream}] ${data}`);
+        logger.debug({ stream }, data.trim());
       });
       
       results.push({

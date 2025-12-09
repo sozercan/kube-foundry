@@ -1,16 +1,25 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useModel } from '@/hooks/useModels'
+import { useGpuCapacity } from '@/hooks/useGpuOperator'
 import { DeploymentForm } from '@/components/deployments/DeploymentForm'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, ArrowLeft, Cpu, HardDrive, Layers } from 'lucide-react'
+import { Loader2, ArrowLeft, Cpu, HardDrive, Layers, AlertTriangle } from 'lucide-react'
 
 export function DeployPage() {
   const { modelId } = useParams<{ modelId: string }>()
   const navigate = useNavigate()
   const decodedModelId = modelId ? decodeURIComponent(modelId) : undefined
   const { data: model, isLoading, error } = useModel(decodedModelId)
+  const { data: gpuCapacity } = useGpuCapacity()
+
+  // Calculate if model fits in cluster
+  const modelMinGpus = model?.minGpus ?? 1
+  const hasGpuWarning = gpuCapacity && (
+    gpuCapacity.availableGpus < modelMinGpus ||
+    gpuCapacity.maxContiguousAvailable < modelMinGpus
+  )
 
   if (isLoading) {
     return (
@@ -94,6 +103,37 @@ export function DeployPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* GPU Warning Banner */}
+      {hasGpuWarning && gpuCapacity && (
+        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-yellow-800 dark:text-yellow-200">
+                  GPU Capacity Warning
+                </p>
+                <div className="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
+                  {gpuCapacity.availableGpus < modelMinGpus && (
+                    <p>
+                      This model requires at least {modelMinGpus} GPU(s) but only {gpuCapacity.availableGpus} are available in the cluster.
+                    </p>
+                  )}
+                  {gpuCapacity.maxContiguousAvailable < modelMinGpus && gpuCapacity.availableGpus >= modelMinGpus && (
+                    <p>
+                      This model requires {modelMinGpus} GPU(s) on a single node, but the largest available block is {gpuCapacity.maxContiguousAvailable} GPU(s).
+                    </p>
+                  )}
+                  <p className="text-xs mt-2">
+                    Cluster: {gpuCapacity.availableGpus}/{gpuCapacity.totalGpus} GPUs available • Max contiguous: {gpuCapacity.maxContiguousAvailable}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Deployment Form */}
       <DeploymentForm model={model} />

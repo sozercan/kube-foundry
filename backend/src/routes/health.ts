@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { kubernetesService } from '../services/kubernetes';
 import { configService } from '../services/config';
+import logger from '../lib/logger';
 
 const router = Router();
 
@@ -30,7 +31,7 @@ router.get('/status', async (req: Request, res: Response, next: NextFunction) =>
         providerInstallation = await kubernetesService.checkProviderInstallation();
         activeProvider = await configService.getActiveProvider();
       } catch (error) {
-        console.error('Error checking provider installation:', error);
+        logger.error({ error }, 'Error checking provider installation');
       }
     }
     

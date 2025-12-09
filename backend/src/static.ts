@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import logger from './lib/logger';
 
 // Static file serving for compiled binary and development mode
 
@@ -51,7 +52,7 @@ async function loadEmbeddedAssets(): Promise<boolean> {
       });
     }
     
-    console.log(`📦 Loaded ${staticFiles.size} embedded assets`);
+    logger.info({ count: staticFiles.size }, `Loaded ${staticFiles.size} embedded assets`);
     return true;
   } catch {
     // embedded-assets.ts doesn't exist (development mode)
@@ -64,17 +65,17 @@ async function loadFilesFromDisk(): Promise<boolean> {
   const staticDir = path.join(import.meta.dir, '../../frontend/dist');
   
   if (!fs.existsSync(staticDir)) {
-    console.warn(`⚠️ Frontend build not found: ${staticDir}`);
-    console.warn('   Run "bun run build:frontend" to build the frontend.');
+    logger.warn({ staticDir }, `Frontend build not found: ${staticDir}`);
+    logger.warn('Run "bun run build:frontend" to build the frontend.');
     return false;
   }
   
   try {
     await loadFilesFromDir(staticDir, '');
-    console.log(`📦 Loaded ${staticFiles.size} static files from ${staticDir}`);
+    logger.info({ count: staticFiles.size, staticDir }, `Loaded ${staticFiles.size} static files from ${staticDir}`);
     return true;
   } catch (error) {
-    console.warn('⚠️ Could not load static files:', error);
+    logger.warn({ error }, 'Could not load static files');
     return false;
   }
 }

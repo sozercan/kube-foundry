@@ -1,6 +1,7 @@
 import type { Provider, ProviderInfo } from './types';
 import { dynamoProvider } from './dynamo';
 import { kuberayProvider } from './kuberay';
+import logger from '../lib/logger';
 
 // Re-export types
 export * from './types';
@@ -23,7 +24,7 @@ class ProviderRegistry {
    */
   register(provider: Provider): void {
     if (this.providers.has(provider.id)) {
-      console.warn(`Provider '${provider.id}' is already registered. Overwriting.`);
+      logger.warn({ providerId: provider.id }, `Provider '${provider.id}' is already registered. Overwriting.`);
     }
     this.providers.set(provider.id, provider);
   }

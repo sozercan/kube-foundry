@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import type { HelmRepo, HelmChart } from '../providers/types';
+import logger from '../lib/logger';
 
 /**
  * NVIDIA GPU Operator Helm configuration
@@ -69,7 +70,7 @@ class HelmService {
       let stderr = '';
       let timedOut = false;
 
-      console.log(`[HelmService] Executing: ${this.helmPath} ${args.join(' ')}`);
+      logger.debug({ command: this.helmPath, args }, `Executing: ${this.helmPath} ${args.join(' ')}`);
 
       const proc = spawn(this.helmPath, args, {
         env: { ...process.env },
