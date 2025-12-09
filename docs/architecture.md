@@ -105,6 +105,12 @@ interface Model {
   contextLength?: number;
   supportedEngines: Engine[];
   minGpuMemory?: string;
+  gated?: boolean;               // Requires HuggingFace auth
+  // Fields from HuggingFace search
+  estimatedGpuMemory?: string;   // Estimated GPU memory (e.g., "16GB")
+  estimatedGpuMemoryGb?: number; // Numeric GPU memory for comparisons
+  parameterCount?: number;       // Parameter count from safetensors
+  fromHfSearch?: boolean;        // True if from HF search (not curated)
 }
 ```
 
@@ -165,8 +171,10 @@ App
 │   ├── Header (cluster status, warnings)
 │   ├── Sidebar (navigation)
 │   └── Page Content
-│       ├── ModelsPage
-│       ├── DeployPage
+│       ├── ModelsPage (tabs: Curated / HuggingFace Search)
+│       │   ├── ModelGrid (curated models)
+│       │   └── HfModelSearch (HuggingFace search with GPU fit indicators)
+│       ├── DeployPage (GPU capacity warnings)
 │       ├── DeploymentsPage
 │       ├── DeploymentDetailsPage
 │       ├── SettingsPage
@@ -187,7 +195,16 @@ Handles all Kubernetes API interactions:
 - Check cluster connectivity
 - Namespace management
 - Check GPU availability on nodes (`nvidia.com/gpu` resources)
+- Detect GPU memory from node labels (`nvidia.com/gpu.memory` or `nvidia.com/gpu.product`)
 - Check GPU Operator installation status (CRDs, pods)
+
+### HuggingFaceService
+Handles HuggingFace Hub API interactions:
+- Search models with text-generation pipeline
+- Filter by architecture compatibility (vLLM, SGLang, TRT-LLM)
+- Estimate GPU memory from parameter count (~2GB/billion params × 1.2 overhead)
+- Extract parameter counts from safetensors metadata
+- OAuth token exchange for gated model access
 
 ### ConfigService
 Manages application configuration:

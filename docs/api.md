@@ -147,6 +147,40 @@ Check NVIDIA GPU Operator installation status and GPU availability.
 }
 ```
 
+### GET /installation/gpu-capacity
+Get detailed GPU capacity information for the cluster.
+
+**Response:**
+```json
+{
+  "totalGpus": 4,
+  "allocatedGpus": 1,
+  "availableGpus": 3,
+  "maxContiguousAvailable": 2,
+  "totalMemoryGb": 80,
+  "nodes": [
+    {
+      "nodeName": "gpu-node-1",
+      "totalGpus": 2,
+      "allocatedGpus": 1,
+      "availableGpus": 1
+    },
+    {
+      "nodeName": "gpu-node-2",
+      "totalGpus": 2,
+      "allocatedGpus": 0,
+      "availableGpus": 2
+    }
+  ]
+}
+```
+
+**Notes:**
+- `totalMemoryGb` is detected from `nvidia.com/gpu.memory` node label (MiB converted to GB)
+- Falls back to detecting memory from `nvidia.com/gpu.product` label if not available
+- Used by frontend to show GPU fit indicators for HuggingFace search results
+```
+
 ### POST /installation/gpu-operator/install
 Install the NVIDIA GPU Operator via Helm.
 
@@ -217,6 +251,51 @@ Get the curated model catalog.
 - `minGpuMemory` - Minimum GPU memory required
 - `minGpus` - Minimum number of GPUs required (default: 1)
 - `gated` - Whether model requires HuggingFace authentication (true for Llama, Mistral, etc.)
+- `estimatedGpuMemory` - Estimated GPU memory from HF search (e.g., "16GB")
+- `estimatedGpuMemoryGb` - Numeric GPU memory for capacity comparisons
+- `parameterCount` - Parameter count from safetensors metadata
+- `fromHfSearch` - True if model came from HuggingFace search
+
+### GET /models/search
+Search HuggingFace Hub for compatible models.
+
+**Query Parameters:**
+- `q` (required) - Search query
+- `limit` (optional) - Number of results (default: 20, max: 100)
+- `offset` (optional) - Pagination offset
+
+**Headers:**
+- `Authorization: Bearer <hf_token>` (optional) - For accessing gated models
+
+**Response:**
+```json
+{
+  "models": [
+    {
+      "id": "meta-llama/Llama-3.1-8B-Instruct",
+      "name": "Llama-3.1-8B-Instruct",
+      "author": "meta-llama",
+      "downloads": 1500000,
+      "likes": 2500,
+      "pipelineTag": "text-generation",
+      "gated": true,
+      "supportedEngines": ["vllm", "sglang", "trtllm"],
+      "estimatedGpuMemory": "19.2GB",
+      "estimatedGpuMemoryGb": 19.2,
+      "parameterCount": 8000000000
+    }
+  ],
+  "total": 150,
+  "offset": 0,
+  "limit": 20
+}
+```
+
+**Notes:**
+- Only returns models with `text-generation` pipeline tag
+- Filters out models with incompatible architectures
+- GPU memory estimated as: `(params × 2GB) × 1.2` for FP16 inference
+- Results cached client-side for 60 seconds
 
 ## Deployments
 

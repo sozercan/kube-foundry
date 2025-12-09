@@ -4,9 +4,12 @@ A web-based platform for deploying and managing large language models on Kuberne
 
 ## Features
 
-- 📦 **Model Catalog**: Browse and search curated Hugging Face models
+- 📦 **Model Catalog**: Browse curated models or search the entire HuggingFace Hub
+- 🔍 **HuggingFace Search**: Find and deploy any compatible model from HuggingFace
+- ⚡ **Smart Filtering**: Automatically filters models by architecture compatibility (vLLM, SGLang, TRT-LLM)
+- 📊 **GPU Capacity Warnings**: Visual indicators showing if models fit your cluster's GPU memory
 - 🚀 **Easy Deployment**: Configure and deploy models with a few clicks
-- 📊 **Dashboard**: Monitor deployment status with auto-refresh
+- 📈 **Dashboard**: Monitor deployment status with auto-refresh
 - 🔌 **Multi-Provider Support**: Extensible architecture supporting multiple inference runtimes
 - 🔧 **Multiple Engines**: Support for vLLM, SGLang, and TensorRT-LLM (via NVIDIA Dynamo)
 - 🎨 **Dark Theme**: Modern dark UI with provider-specific accents
@@ -34,32 +37,6 @@ KubeFoundry supports automatic HuggingFace token setup via OAuth. Navigate to **
 
 > **Note:** Both NVIDIA Dynamo and KubeRay providers require a HuggingFace token to access gated models.
 
-<details>
-<summary>Manual Token Setup (Alternative)</summary>
-
-If you prefer manual setup, create the secret in each provider's namespace:
-
-```bash
-# For Dynamo
-kubectl create namespace dynamo-system
-kubectl create secret generic hf-token-secret \
-  --from-literal=HF_TOKEN="your-token" \
-  -n dynamo-system
-
-# For KubeRay
-kubectl create namespace kuberay-system
-kubectl create secret generic hf-token-secret \
-  --from-literal=HF_TOKEN="your-token" \
-  -n kuberay-system
-
-# For default namespace deployments
-kubectl create secret generic hf-token-secret \
-  --from-literal=HF_TOKEN="your-token" \
-  -n default
-```
-
-</details>
-
 ### 2. Install a Provider
 
 Navigate to the **Installation** page in the UI, or install manually via CLI:
@@ -76,10 +53,11 @@ helm install dynamo-operator nvidia-dynamo/dynamo \
 
 ### 3. Deploy a Model
 
-1. **Browse Models**: View the curated catalog of supported models
-2. **Select & Configure**: Choose a model and configure deployment options (engine, replicas, etc.)
-3. **Deploy**: Click deploy to create the deployment in your Kubernetes cluster
-4. **Monitor**: View deployment status in the dashboard
+1. **Browse Models**: View the curated catalog or search HuggingFace for any compatible model
+2. **Check GPU Fit**: Review GPU memory estimates and fit indicators (✓ fits, ⚠ tight, ✗ exceeds)
+3. **Select & Configure**: Choose a model and configure deployment options (engine, replicas, etc.)
+4. **Deploy**: Click deploy to create the deployment in your Kubernetes cluster
+5. **Monitor**: View deployment status in the dashboard
 
 ### 4. Access Your Model
 
@@ -100,6 +78,10 @@ curl http://localhost:8000/v1/chat/completions \
 
 ## Supported Models
 
+KubeFoundry supports **any HuggingFace model** with a compatible architecture. Browse the curated catalog for tested models, or search HuggingFace Hub for thousands more.
+
+### Curated Models
+
 | Model | Size | Engines |
 |-------|------|---------|
 | Qwen/Qwen3-0.6B | 0.6B | vLLM, SGLang, TensorRT-LLM |
@@ -110,6 +92,16 @@ curl http://localhost:8000/v1/chat/completions \
 | mistralai/Mistral-7B-Instruct-v0.3 | 7B | vLLM, SGLang, TensorRT-LLM |
 | microsoft/Phi-3-mini-4k-instruct | 3.8B | vLLM, SGLang |
 | TinyLlama/TinyLlama-1.1B-Chat-v1.0 | 1.1B | vLLM, SGLang, TensorRT-LLM |
+
+### Supported Architectures
+
+When searching HuggingFace, models are filtered by architecture compatibility:
+
+| Engine | Supported Architectures |
+|--------|------------------------|
+| vLLM | LlamaForCausalLM, MistralForCausalLM, Qwen2ForCausalLM, GPT2LMHeadModel, and 40+ more |
+| SGLang | LlamaForCausalLM, MistralForCausalLM, Qwen2ForCausalLM, and 20+ more |
+| TensorRT-LLM | LlamaForCausalLM, GPTForCausalLM, MistralForCausalLM, and 15+ more |
 
 ## Configuration
 
