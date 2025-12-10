@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { 
-  useDeployments, 
-  useDeployment, 
+import {
+  useDeployments,
+  useDeployment,
   useDeploymentPods,
-  useCreateDeployment, 
-  useDeleteDeployment 
+  useCreateDeployment,
+  useDeleteDeployment
 } from './useDeployments'
 import { createWrapper, createTestQueryClient } from '@/test/test-utils'
 import { mockDeployments } from '@/test/mocks/handlers'
@@ -35,7 +35,7 @@ describe('useDeployments', () => {
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    
+
     expect(result.current.data).toBeDefined()
     // All returned deployments should be in the specified namespace
     if (result.current.data && result.current.data.length > 0) {
@@ -59,7 +59,7 @@ describe('useDeployments', () => {
 describe('useDeployment', () => {
   it('fetches a single deployment by name', async () => {
     const deploymentName = mockDeployments[0].name
-    
+
     const { result } = renderHook(() => useDeployment(deploymentName), {
       wrapper: createWrapper(),
     })
@@ -82,7 +82,7 @@ describe('useDeployment', () => {
 
   it('fetches with namespace parameter', async () => {
     const deploymentName = mockDeployments[0].name
-    
+
     const { result } = renderHook(() => useDeployment(deploymentName, 'kubefoundry-system'), {
       wrapper: createWrapper(),
     })
@@ -95,7 +95,7 @@ describe('useDeployment', () => {
 describe('useDeploymentPods', () => {
   it('fetches pods for a deployment', async () => {
     const deploymentName = mockDeployments[0].name
-    
+
     const { result } = renderHook(() => useDeploymentPods(deploymentName), {
       wrapper: createWrapper(),
     })
@@ -120,7 +120,7 @@ describe('useCreateDeployment', () => {
   it('creates a deployment and invalidates queries', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-    
+
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>
         {children}
@@ -145,12 +145,13 @@ describe('useCreateDeployment', () => {
 
     result.current.mutate(deploymentConfig)
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    // Wait for success with longer timeout due to artificial delays in the hook
+    await waitFor(() => expect(result.current.isSuccess).toBe(true), { timeout: 3000 })
 
     expect(result.current.data).toBeDefined()
     expect(result.current.data?.message).toBe('Deployment created')
     expect(result.current.data?.name).toBe('new-deployment')
-    
+
     // Verify queries are invalidated
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['deployments'] })
   })
@@ -171,7 +172,7 @@ describe('useDeleteDeployment', () => {
   it('deletes a deployment and invalidates queries', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-    
+
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>
         {children}
@@ -182,11 +183,11 @@ describe('useDeleteDeployment', () => {
 
     result.current.mutate({ name: 'test-deployment', namespace: 'kubefoundry-system' })
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    await waitFor(() => expect(result.current.isSuccess).toBe(true), { timeout: 3000 })
 
     expect(result.current.data).toBeDefined()
     expect(result.current.data?.message).toBe('Deployment deleted')
-    
+
     // Verify queries are invalidated
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['deployments'] })
   })
@@ -198,7 +199,7 @@ describe('useDeleteDeployment', () => {
 
     result.current.mutate({ name: 'test-deployment' })
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    await waitFor(() => expect(result.current.isSuccess).toBe(true), { timeout: 3000 })
     expect(result.current.data?.message).toBe('Deployment deleted')
   })
 })

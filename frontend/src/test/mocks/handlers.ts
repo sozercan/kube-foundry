@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 
-const API_BASE = 'http://localhost:3001/api'
+// Use wildcard prefix to match both relative URLs (/api/...) and absolute URLs (http://localhost:3001/api/...)
+const API_BASE = '*/api'
 
 // Mock data
 export const mockModels = [

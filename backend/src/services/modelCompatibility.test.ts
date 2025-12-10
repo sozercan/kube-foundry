@@ -2,11 +2,15 @@ import { describe, test, expect } from 'bun:test';
 import {
   inferArchitectureFromModelId,
   getSupportedEngines,
+  isPipelineTagCompatible,
+  getIncompatibilityReason,
+  extractParameterCount,
   processHfModel,
   filterCompatibleModels,
   parseParameterCountFromName,
+  getEngineArchitectures,
 } from './modelCompatibility';
-import type { HfApiModelResult } from '@kubefoundry/shared';
+import type { Engine, HfApiModelResult } from '@kubefoundry/shared';
 
 describe('inferArchitectureFromModelId', () => {
   test('infers LlamaForCausalLM for llama models', () => {
@@ -49,52 +53,186 @@ describe('inferArchitectureFromModelId', () => {
 });
 
 describe('getSupportedEngines', () => {
-  test('returns all engines for LlamaForCausalLM', () => {
+  test('returns vllm, sglang, trtllm for LlamaForCausalLM', () => {
     const engines = getSupportedEngines(['LlamaForCausalLM']);
     expect(engines).toContain('vllm');
     expect(engines).toContain('sglang');
     expect(engines).toContain('trtllm');
   });
 
-  test('returns empty array for unknown architecture', () => {
-    expect(getSupportedEngines(['UnknownArchitecture'])).toEqual([]);
+  test('returns engines for Qwen architecture', () => {
+    const engines = getSupportedEngines(['Qwen2ForCausalLM']);
+    expect(engines).toContain('vllm');
+    expect(engines).toContain('sglang');
+    expect(engines).toContain('trtllm');
   });
 
-  test('returns engines if any architecture is supported', () => {
-    const engines = getSupportedEngines(['UnknownArchitecture', 'LlamaForCausalLM']);
+  test('returns limited engines for lesser supported architectures', () => {
+    const engines = getSupportedEngines(['JambaForCausalLM']);
+    expect(engines).toContain('vllm');
+    expect(engines).not.toContain('trtllm');
+  });
+
+  test('returns empty array for unknown architecture', () => {
+    const engines = getSupportedEngines(['UnknownArchitecture']);
+    expect(engines).toHaveLength(0);
+  });
+
+  test('handles multiple architectures', () => {
+    const engines = getSupportedEngines(['UnknownArch', 'LlamaForCausalLM']);
     expect(engines.length).toBeGreaterThan(0);
+  });
+
+  test('returns empty for empty input', () => {
+    const engines = getSupportedEngines([]);
+    expect(engines).toHaveLength(0);
+  });
+});
+
+describe('isPipelineTagCompatible', () => {
+  test('returns true for text-generation', () => {
+    expect(isPipelineTagCompatible('text-generation')).toBe(true);
+  });
+
+  test('returns true for text2text-generation', () => {
+    expect(isPipelineTagCompatible('text2text-generation')).toBe(true);
+  });
+
+  test('returns true for conversational', () => {
+    expect(isPipelineTagCompatible('conversational')).toBe(true);
+  });
+
+  test('returns false for image-classification', () => {
+    expect(isPipelineTagCompatible('image-classification')).toBe(false);
+  });
+
+  test('returns false for undefined', () => {
+    expect(isPipelineTagCompatible(undefined)).toBe(false);
+  });
+
+  test('returns false for empty string', () => {
+    expect(isPipelineTagCompatible('')).toBe(false);
+  });
+});
+
+describe('getIncompatibilityReason', () => {
+  test('returns reason for no pipeline tag', () => {
+    const reason = getIncompatibilityReason(undefined);
+    expect(reason).toBe('Model has no pipeline tag');
+  });
+
+  test('returns reason for unsupported pipeline tag', () => {
+    const reason = getIncompatibilityReason('image-segmentation');
+    expect(reason).toContain('not supported');
+  });
+
+  test('returns reason for unsupported library', () => {
+    const reason = getIncompatibilityReason('text-generation', 'diffusers');
+    expect(reason).toContain('diffusers');
+  });
+
+  test('returns reason for unknown architecture', () => {
+    const reason = getIncompatibilityReason('text-generation', 'transformers', []);
+    expect(reason).toContain('unknown');
+  });
+
+  test('returns reason for unsupported architecture', () => {
+    const reason = getIncompatibilityReason('text-generation', 'transformers', ['UnknownArch'], []);
+    expect(reason).toContain('not supported by any engine');
+  });
+
+  test('returns undefined for compatible model', () => {
+    const reason = getIncompatibilityReason('text-generation', 'transformers', ['LlamaForCausalLM'], ['vllm']);
+    expect(reason).toBeUndefined();
+  });
+});
+
+describe('extractParameterCount', () => {
+  test('extracts from safetensors total', () => {
+    const model: HfApiModelResult = {
+      id: 'test/model',
+      safetensors: { total: 7_000_000_000 },
+    };
+    expect(extractParameterCount(model)).toBe(7_000_000_000);
+  });
+
+  test('extracts from safetensors parameters map', () => {
+    const model: HfApiModelResult = {
+      id: 'test/model',
+      safetensors: {
+        parameters: {
+          'BF16': 3_500_000_000,
+          'F16': 3_500_000_000,
+        },
+      },
+    };
+    expect(extractParameterCount(model)).toBe(7_000_000_000);
+  });
+
+  test('returns undefined when no parameter info', () => {
+    const model: HfApiModelResult = {
+      id: 'test/model',
+    };
+    expect(extractParameterCount(model)).toBeUndefined();
+  });
+
+  test('prefers total over parameters map', () => {
+    const model: HfApiModelResult = {
+      id: 'test/model',
+      safetensors: {
+        total: 10_000_000_000,
+        parameters: { 'BF16': 5_000_000_000 },
+      },
+    };
+    expect(extractParameterCount(model)).toBe(10_000_000_000);
   });
 });
 
 describe('processHfModel', () => {
-  test('processes model with full metadata', () => {
+  test('processes compatible model correctly', () => {
     const model: HfApiModelResult = {
-      _id: '123',
-      id: 'TinyLlama/TinyLlama-1.1B-Chat-v1.0',
-      modelId: 'TinyLlama-1.1B-Chat-v1.0',
+      id: 'meta-llama/Llama-3.2-1B',
       downloads: 1000,
-      likes: 100,
+      likes: 50,
       pipeline_tag: 'text-generation',
       library_name: 'transformers',
-      config: {
-        architectures: ['LlamaForCausalLM'],
-        model_type: 'llama',
-      },
+      config: { architectures: ['LlamaForCausalLM'] },
+      safetensors: { total: 1_000_000_000 },
       gated: false,
     };
 
     const result = processHfModel(model);
+    expect(result.id).toBe('meta-llama/Llama-3.2-1B');
+    expect(result.author).toBe('meta-llama');
+    expect(result.name).toBe('Llama-3.2-1B');
     expect(result.compatible).toBe(true);
     expect(result.architectures).toEqual(['LlamaForCausalLM']);
     expect(result.supportedEngines.length).toBeGreaterThan(0);
+    expect(result.parameterCount).toBe(1_000_000_000);
+    expect(result.estimatedGpuMemory).toBeDefined();
+    expect(result.incompatibilityReason).toBeUndefined();
     expect(result.gated).toBe(false);
+  });
+
+  test('processes incompatible model correctly', () => {
+    const model: HfApiModelResult = {
+      id: 'test/vision-model',
+      downloads: 500,
+      likes: 10,
+      pipeline_tag: 'image-classification',
+      library_name: 'transformers',
+      config: { architectures: ['ViTForImageClassification'] },
+    };
+
+    const result = processHfModel(model);
+    expect(result.compatible).toBe(false);
+    expect(result.incompatibilityReason).toBeDefined();
+    expect(result.supportedEngines).toHaveLength(0);
   });
 
   test('processes gated model without metadata by inferring architecture', () => {
     const model: HfApiModelResult = {
-      _id: '123',
       id: 'meta-llama/Llama-3.1-8B-Instruct',
-      modelId: 'Llama-3.1-8B-Instruct',
       downloads: 100000,
       likes: 5000,
       // Gated models return null for these fields without auth
@@ -118,9 +256,7 @@ describe('processHfModel', () => {
 
   test('marks unknown model without metadata as incompatible', () => {
     const model: HfApiModelResult = {
-      _id: '123',
       id: 'unknown/some-model',
-      modelId: 'some-model',
       downloads: 10,
       likes: 1,
       pipeline_tag: undefined,
@@ -135,27 +271,42 @@ describe('processHfModel', () => {
     expect(result.architectures).toEqual([]);
     expect(result.incompatibilityReason).toBeDefined();
   });
+
+  test('handles auto-gated models', () => {
+    const model: HfApiModelResult = {
+      id: 'test/auto-gated',
+      gated: 'auto' as any,
+    };
+
+    const result = processHfModel(model);
+    expect(result.gated).toBe(true);
+  });
+
+  test('handles model ID without slash', () => {
+    const model: HfApiModelResult = {
+      id: 'simple-model-name',
+      pipeline_tag: 'text-generation',
+    };
+
+    const result = processHfModel(model);
+    expect(result.author).toBe('simple-model-name');
+    expect(result.name).toBe('simple-model-name');
+  });
 });
 
 describe('filterCompatibleModels', () => {
   test('filters to only compatible models', () => {
     const models: HfApiModelResult[] = [
       {
-        _id: '1',
         id: 'meta-llama/Llama-3.1-8B',
-        modelId: 'Llama-3.1-8B',
         gated: true,
       },
       {
-        _id: '2',
         id: 'unknown/unsupported-model',
-        modelId: 'unsupported-model',
         gated: false,
       },
       {
-        _id: '3',
         id: 'TinyLlama/TinyLlama-1.1B',
-        modelId: 'TinyLlama-1.1B',
         pipeline_tag: 'text-generation',
         library_name: 'transformers',
         config: { architectures: ['LlamaForCausalLM'] },
@@ -168,6 +319,36 @@ describe('filterCompatibleModels', () => {
     expect(compatible.map(m => m.id)).toContain('meta-llama/Llama-3.1-8B');
     expect(compatible.map(m => m.id)).toContain('TinyLlama/TinyLlama-1.1B');
     expect(compatible.map(m => m.id)).not.toContain('unknown/unsupported-model');
+  });
+
+  test('filters out incompatible models', () => {
+    const models: HfApiModelResult[] = [
+      {
+        id: 'test/llm',
+        pipeline_tag: 'text-generation',
+        library_name: 'transformers',
+        config: { architectures: ['LlamaForCausalLM'] },
+      },
+      {
+        id: 'test/vision',
+        pipeline_tag: 'image-classification',
+        config: { architectures: ['ViTForImageClassification'] },
+      },
+    ];
+
+    const result = filterCompatibleModels(models);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('test/llm');
+  });
+
+  test('returns empty array for all incompatible', () => {
+    const models: HfApiModelResult[] = [
+      { id: 'test/1', pipeline_tag: 'image-classification' },
+      { id: 'test/2', pipeline_tag: 'audio-classification' },
+    ];
+
+    const result = filterCompatibleModels(models);
+    expect(result).toHaveLength(0);
   });
 });
 
@@ -185,5 +366,28 @@ describe('parseParameterCountFromName', () => {
 
   test('returns undefined for unparseable names', () => {
     expect(parseParameterCountFromName('some-model')).toBeUndefined();
+  });
+});
+
+describe('getEngineArchitectures', () => {
+  test('returns architectures for vllm', () => {
+    const archs = getEngineArchitectures('vllm');
+    expect(archs).toContain('LlamaForCausalLM');
+    expect(archs).toContain('MistralForCausalLM');
+    expect(archs.length).toBeGreaterThan(10);
+  });
+
+  test('returns architectures for trtllm', () => {
+    const archs = getEngineArchitectures('trtllm');
+    expect(archs).toContain('LlamaForCausalLM');
+    // trtllm has fewer supported architectures
+    expect(archs.length).toBeLessThan(getEngineArchitectures('vllm').length);
+  });
+
+  test('returns copy not reference', () => {
+    const archs1 = getEngineArchitectures('vllm');
+    const archs2 = getEngineArchitectures('vllm');
+    archs1.push('TestArch');
+    expect(archs2).not.toContain('TestArch');
   });
 });

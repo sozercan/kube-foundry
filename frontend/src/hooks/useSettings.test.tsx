@@ -1,0 +1,115 @@
+import { describe, it, expect, vi } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
+import { useSettings, useUpdateSettings, useProviders, useProviderDetails } from './useSettings'
+import { createWrapper, createTestQueryClient } from '@/test/test-utils'
+import { QueryClientProvider } from '@tanstack/react-query'
+import React from 'react'
+
+describe('useSettings', () => {
+  it('fetches settings', async () => {
+    const { result } = renderHook(() => useSettings(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(result.current.data).toBeDefined()
+    expect(result.current.data?.config).toBeDefined()
+    expect(result.current.data?.providers).toBeDefined()
+  })
+
+  it('returns active provider info', async () => {
+    const { result } = renderHook(() => useSettings(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(result.current.data?.config.activeProviderId).toBeDefined()
+    expect(result.current.data?.activeProvider).toBeDefined()
+  })
+})
+
+describe('useUpdateSettings', () => {
+  it('updates settings and invalidates queries', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useUpdateSettings(), { wrapper })
+
+    result.current.mutate({ activeProviderId: 'kuberay' })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(result.current.data).toBeDefined()
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['settings'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['cluster-status'] })
+  })
+
+  it('can update default namespace', async () => {
+    const { result } = renderHook(() => useUpdateSettings(), {
+      wrapper: createWrapper(),
+    })
+
+    result.current.mutate({ defaultNamespace: 'custom-namespace' })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data?.message).toBe('Settings updated')
+  })
+})
+
+describe('useProviders', () => {
+  it('fetches providers list', async () => {
+    const { result } = renderHook(() => useProviders(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(result.current.data?.providers).toBeDefined()
+    expect(Array.isArray(result.current.data?.providers)).toBe(true)
+    expect(result.current.data!.providers.length).toBeGreaterThan(0)
+  })
+
+  it('returns provider objects with required fields', async () => {
+    const { result } = renderHook(() => useProviders(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const provider = result.current.data!.providers[0]
+    expect(provider.id).toBeDefined()
+    expect(provider.name).toBeDefined()
+    expect(provider.description).toBeDefined()
+  })
+})
+
+describe('useProviderDetails', () => {
+  it('fetches provider details by id', async () => {
+    const { result } = renderHook(() => useProviderDetails('dynamo'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(result.current.data).toBeDefined()
+    expect(result.current.data?.id).toBe('dynamo')
+    expect(result.current.data?.name).toBeDefined()
+    expect(result.current.data?.crdConfig).toBeDefined()
+  })
+
+  it('does not fetch when id is empty', async () => {
+    const { result } = renderHook(() => useProviderDetails(''), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+  })
+})
