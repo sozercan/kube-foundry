@@ -95,7 +95,7 @@ app.use('/api/*', async (c, next) => {
 
   // Validate token via Kubernetes TokenReview
   const result = await authService.validateToken(token);
-  
+
   if (!result.valid) {
     logger.warn({ error: result.error }, 'Token validation failed');
     return c.json(
