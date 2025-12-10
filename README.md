@@ -4,154 +4,137 @@ A web-based platform for deploying and managing large language models on Kuberne
 
 ## Features
 
+- �️ **Web UI**: Modern interface for all deployment and management tasks
 - 📦 **Model Catalog**: Browse curated models or search the entire HuggingFace Hub
-- 🔍 **HuggingFace Search**: Find and deploy any compatible model from HuggingFace
-- ⚡ **Smart Filtering**: Automatically filters models by architecture compatibility (vLLM, SGLang, TRT-LLM)
+- 🔍 **Smart Filtering**: Automatically filters models by architecture compatibility
 - 📊 **GPU Capacity Warnings**: Visual indicators showing if models fit your cluster's GPU memory
-- 🚀 **Easy Deployment**: Configure and deploy models with a few clicks
-- 📈 **Dashboard**: Monitor deployment status with auto-refresh
+- 🚀 **One-Click Deploy**: Configure and deploy models without writing YAML
+- 📈 **Live Dashboard**: Monitor deployments with auto-refresh and status tracking
 - 🔌 **Multi-Provider Support**: Extensible architecture supporting multiple inference runtimes
-- 🔧 **Multiple Engines**: Support for vLLM, SGLang, and TensorRT-LLM (via NVIDIA Dynamo)
+- 🔧 **Multiple Engines**: vLLM, SGLang, and TensorRT-LLM (via NVIDIA Dynamo)
+- 📥 **Installation Wizard**: Install providers via Helm directly from the UI
 - 🎨 **Dark Theme**: Modern dark UI with provider-specific accents
-- 📥 **Installation Management**: Install providers via Helm with UI or CLI commands
 
 ## Supported Providers
 
-| Provider | Status | Description |
-|----------|--------|-------------|
-| **NVIDIA Dynamo** | ✅ Available | GPU-accelerated inference with disaggregated serving |
-| **KubeRay** | ✅ Available | Ray-based distributed inference |
+| Provider          | Status      | Description                                                        |
+| ----------------- | ----------- | ------------------------------------------------------------------ |
+| **NVIDIA Dynamo** | ✅ Available | GPU-accelerated inference with aggregated or disaggregated serving |
+| **KubeRay**       | ✅ Available | Ray-based distributed inference                                    |
 
 ## Prerequisites
 
-- Access to a Kubernetes cluster with kubectl configured
-- Helm CLI installed
+- Kubernetes cluster with `kubectl` configured
+- `helm` CLI installed
 - GPU nodes with NVIDIA drivers (for GPU-accelerated inference)
 - HuggingFace account (for accessing gated models like Llama)
 
 ## Quick Start
 
-### 1. Connect HuggingFace Account
+### Option A: Run Locally
 
-KubeFoundry supports automatic HuggingFace token setup via OAuth. Navigate to **Settings** and click **"Sign in with Hugging Face"** to securely connect your account. The token will be automatically distributed to all required namespaces.
-
-> **Note:** Both NVIDIA Dynamo and KubeRay providers require a HuggingFace token to access gated models.
-
-### 2. Install a Provider
-
-Navigate to the **Installation** page in the UI, or install manually via CLI:
+Download the latest release for your platform and run:
 
 ```bash
-# Add NVIDIA Dynamo Helm repo
-helm repo add nvidia-dynamo https://nvidia.github.io/dynamo
-helm repo update
-
-# Install Dynamo operator
-helm install dynamo-operator nvidia-dynamo/dynamo \
-  --namespace dynamo-system --create-namespace
+./kubefoundry
 ```
+
+Open the web UI at **http://localhost:3001**
+
+> **Requires:** `kubectl` configured with cluster access, `helm` CLI installed
+
+### Option B: Deploy to Kubernetes
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/sozercan/kube-foundry/main/deploy/kubernetes/kubefoundry.yaml
+
+# Access via port-forward
+kubectl port-forward -n kubefoundry-system svc/kubefoundry 3001:80
+```
+
+Open the web UI at **http://localhost:3001**
+
+See [Kubernetes Deployment](deploy/kubernetes/README.md) for configuration options.
+
+---
+
+### 1. Install a Provider
+
+Navigate to the **Installation** page and click **Install** next to your preferred provider. The UI will guide you through the Helm installation process with real-time status updates.
+
+### 2. Connect HuggingFace Account
+
+Go to **Settings** → **HuggingFace** and click **"Sign in with Hugging Face"** to connect your account via OAuth. Your token will be automatically distributed to all required namespaces.
+
+> **Note:** A HuggingFace token is required to access gated models like Llama.
 
 ### 3. Deploy a Model
 
-1. **Browse Models**: View the curated catalog or search HuggingFace for any compatible model
-2. **Check GPU Fit**: Review GPU memory estimates and fit indicators (✓ fits, ⚠ tight, ✗ exceeds)
-3. **Select & Configure**: Choose a model and configure deployment options (engine, replicas, etc.)
-4. **Deploy**: Click deploy to create the deployment in your Kubernetes cluster
-5. **Monitor**: View deployment status in the dashboard
+1. Navigate to the **Models** page
+2. **Browse** the curated catalog or **Search** HuggingFace for any compatible model
+3. **Review** GPU memory estimates and fit indicators (✓ fits, ⚠ tight, ✗ exceeds)
+4. Click **Deploy** on your chosen model
+5. **Configure** deployment options (engine, replicas, tensor parallelism, etc.)
+6. Click **Create Deployment** to launch
 
-### 4. Access Your Model
+### 4. Monitor Your Deployment
 
-Once the deployment is running:
+Head to the **Deployments** page to:
+- View real-time status of all deployments
+- See pod readiness and health checks
+- Access logs and deployment details
+- Scale or delete deployments
+
+### 5. Access Your Model
+
+Once status shows **Running**, your model exposes an OpenAI-compatible API. Use `kubectl port-forward` to access it locally:
 
 ```bash
-# Port-forward to the service
-kubectl port-forward svc/<deployment-name>-frontend 8000:8000 -n dynamo-system
+# Port-forward to the service (check Deployments page for exact service name)
+kubectl port-forward svc/<deployment-name> 8000:8000 -n <namespace>
 
-# Test the model
+# List available models
+curl http://localhost:8000/v1/models
+
+# Test with a chat completion
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "Qwen/Qwen3-0.6B",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
+  -d '{"model": "<model-name>", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
 ## Supported Models
 
 KubeFoundry supports **any HuggingFace model** with a compatible architecture. Browse the curated catalog for tested models, or search HuggingFace Hub for thousands more.
 
-### Curated Models
-
-| Model | Size | Engines |
-|-------|------|---------|
-| Qwen/Qwen3-0.6B | 0.6B | vLLM, SGLang, TensorRT-LLM |
-| Qwen/Qwen2.5-1.5B-Instruct | 1.5B | vLLM, SGLang, TensorRT-LLM |
-| deepseek-ai/DeepSeek-R1-Distill-Llama-8B | 8B | vLLM, SGLang |
-| meta-llama/Llama-3.2-1B-Instruct | 1B | vLLM, SGLang, TensorRT-LLM |
-| meta-llama/Llama-3.2-3B-Instruct | 3B | vLLM, SGLang, TensorRT-LLM |
-| mistralai/Mistral-7B-Instruct-v0.3 | 7B | vLLM, SGLang, TensorRT-LLM |
-| microsoft/Phi-3-mini-4k-instruct | 3.8B | vLLM, SGLang |
-| TinyLlama/TinyLlama-1.1B-Chat-v1.0 | 1.1B | vLLM, SGLang, TensorRT-LLM |
-
 ### Supported Architectures
 
 When searching HuggingFace, models are filtered by architecture compatibility:
 
-| Engine | Supported Architectures |
-|--------|------------------------|
-| vLLM | LlamaForCausalLM, MistralForCausalLM, Qwen2ForCausalLM, GPT2LMHeadModel, and 40+ more |
-| SGLang | LlamaForCausalLM, MistralForCausalLM, Qwen2ForCausalLM, and 20+ more |
-| TensorRT-LLM | LlamaForCausalLM, GPTForCausalLM, MistralForCausalLM, and 15+ more |
-
-## Configuration
-
-Settings are managed through the **Settings** page in the UI:
-
-- **Active Provider**: Select which inference provider to use
-- **Default Namespace**: Kubernetes namespace for deployments
-- **HuggingFace Token**: Connect via OAuth or manually configure the K8s secret name
-- **GPU Operator**: Install NVIDIA GPU Operator for GPU support
+| Engine       | Supported Architectures                                                               |
+| ------------ | ------------------------------------------------------------------------------------- |
+| vLLM         | LlamaForCausalLM, MistralForCausalLM, Qwen2ForCausalLM, GPT2LMHeadModel, and 40+ more |
+| SGLang       | LlamaForCausalLM, MistralForCausalLM, Qwen2ForCausalLM, and 20+ more                  |
+| TensorRT-LLM | LlamaForCausalLM, GPTForCausalLM, MistralForCausalLM, and 15+ more                    |
 
 ## Authentication (Optional)
 
 KubeFoundry supports optional authentication using your existing kubeconfig OIDC credentials.
 
-### Enable Authentication
+To enable, start the server with:
 
 ```bash
 AUTH_ENABLED=true ./kubefoundry
 ```
 
-### Login
+Then use the CLI to login:
 
 ```bash
-# Login using current kubeconfig context
-kubefoundry login
-
-# Login to a specific server
-kubefoundry login --server https://kubefoundry.example.com
-
-# Use a specific kubeconfig context
-kubefoundry login --context my-aks-cluster
+kubefoundry login                              # Uses current kubeconfig context
+kubefoundry login --server https://example.com # Specify server URL
+kubefoundry login --context my-cluster         # Use specific context
 ```
 
-The login command extracts your OIDC token from kubeconfig and opens your browser automatically.
-
-## Troubleshooting
-
-### Provider not detected as installed
-- Check CRD exists: `kubectl get crd dynamographdeployments.dynamo.nvidia.com`
-- Check operator deployment: `kubectl get deployments -n dynamo-system`
-
-### Deployment stuck in pending
-- Check pod status: `kubectl get pods -n dynamo-system`
-- Check events: `kubectl describe pod <pod-name> -n dynamo-system`
-- Verify GPU resources are available
-
-### Can't access the model endpoint
-- Ensure the deployment status shows "Running"
-- Verify port-forward is active
-- Check service exists: `kubectl get svc -n dynamo-system`
+The login command extracts your OIDC token and opens the browser automatically.
 
 ## Documentation
 
@@ -159,12 +142,7 @@ The login command extracts your OIDC token from kubeconfig and opens your browse
 - [API Reference](docs/api.md)
 - [Development Guide](docs/development.md)
 - [Kubernetes Deployment](deploy/kubernetes/README.md)
-- [Contributing](CONTRIBUTING.md)
 
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
-
-## License
-
-MIT
