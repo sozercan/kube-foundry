@@ -8,6 +8,7 @@ A web-based platform for deploying and managing large language models on Kuberne
 - 📦 **Model Catalog**: Browse curated models or search the entire HuggingFace Hub
 - 🔍 **Smart Filtering**: Automatically filters models by architecture compatibility
 - 📊 **GPU Capacity Warnings**: Visual indicators showing if models fit your cluster's GPU memory
+- ⚡ **Autoscaler Integration**: Detects cluster autoscaling and provides capacity guidance
 - 🚀 **One-Click Deploy**: Configure and deploy models without writing YAML
 - 📈 **Live Dashboard**: Monitor deployments with auto-refresh and status tracking
 - 🔌 **Multi-Provider Support**: Extensible architecture supporting multiple inference runtimes
@@ -141,6 +142,7 @@ The login command extracts your OIDC token and opens the browser automatically.
 - [Architecture Overview](docs/architecture.md)
 - [API Reference](docs/api.md)
 - [Development Guide](docs/development.md)
+- [Azure Cluster Autoscaling Setup](docs/azure-autoscaling.md)
 - [Kubernetes Deployment](deploy/kubernetes/README.md)
 
 ## Contributing

@@ -1,11 +1,11 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useModel, useHfModel } from '@/hooks/useModels'
-import { useGpuCapacity } from '@/hooks/useGpuOperator'
+import { useAutoscalerDetection, useDetailedCapacity } from '@/hooks/useAutoscaler'
 import { DeploymentForm } from '@/components/deployments/DeploymentForm'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, ArrowLeft, Cpu, HardDrive, Layers, AlertTriangle, ExternalLink } from 'lucide-react'
+import { Loader2, ArrowLeft, Cpu, HardDrive, Layers, ExternalLink } from 'lucide-react'
 import { GpuFitIndicator } from '@/components/models/GpuFitIndicator'
 
 export function DeployPage() {
@@ -14,26 +14,14 @@ export function DeployPage() {
   const navigate = useNavigate()
   const decodedModelId = modelId ? decodeURIComponent(modelId) : undefined
   const isHfSource = searchParams.get('source') === 'hf'
-  
+
   // Use appropriate hook based on source
   const localModelQuery = useModel(isHfSource ? undefined : decodedModelId)
   const hfModelQuery = useHfModel(isHfSource ? decodedModelId : undefined)
-  
-  const { data: model, isLoading, error } = isHfSource ? hfModelQuery : localModelQuery
-  const { data: gpuCapacity } = useGpuCapacity()
 
-  // Calculate if model fits in cluster (GPU count based)
-  const modelMinGpus = model?.minGpus ?? 1
-  const hasGpuCountWarning = gpuCapacity && (
-    gpuCapacity.availableGpus < modelMinGpus ||
-    gpuCapacity.maxContiguousAvailable < modelMinGpus
-  )
-  
-  // Calculate GPU memory warning for HF models
-  const estimatedGpuGb = model?.estimatedGpuMemoryGb
-  const gpuMemoryGb = gpuCapacity?.totalMemoryGb
-  const hasGpuMemoryWarning = estimatedGpuGb && gpuMemoryGb && estimatedGpuGb > gpuMemoryGb
-  const hasGpuWarning = hasGpuCountWarning || hasGpuMemoryWarning
+  const { data: model, isLoading, error } = isHfSource ? hfModelQuery : localModelQuery
+  const { data: detailedCapacity } = useDetailedCapacity()
+  const { data: autoscaler } = useAutoscalerDetection()
 
   if (isLoading) {
     return (
@@ -112,10 +100,10 @@ export function DeployPage() {
               {model.estimatedGpuMemory ? (
                   <div className="flex items-center gap-2">
                     <span>GPU: ~{model.estimatedGpuMemory}</span>
-                    {gpuCapacity?.totalMemoryGb && model.estimatedGpuMemoryGb && (
+                    {detailedCapacity?.totalMemoryGb && model.estimatedGpuMemoryGb && (
                       <GpuFitIndicator
                         estimatedGpuMemoryGb={model.estimatedGpuMemoryGb}
-                        clusterCapacityGb={gpuCapacity.totalMemoryGb}
+                        clusterCapacityGb={detailedCapacity.totalMemoryGb}
                       />
                     )}
                   </div>
@@ -147,48 +135,12 @@ export function DeployPage() {
         </CardContent>
       </Card>
 
-      {/* GPU Warning Banner */}
-      {hasGpuWarning && gpuCapacity && (
-        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-medium text-yellow-800 dark:text-yellow-200">
-                  GPU Capacity Warning
-                </p>
-                <div className="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
-                  {/* Memory-based warning for HF models */}
-                  {hasGpuMemoryWarning && estimatedGpuGb && gpuMemoryGb && (
-                    <p>
-                      This model requires approximately {estimatedGpuGb.toFixed(1)} GB of GPU memory, 
-                      but the cluster only has {gpuMemoryGb.toFixed(1)} GB available per GPU.
-                    </p>
-                  )}
-                  {/* GPU count warnings */}
-                  {hasGpuCountWarning && gpuCapacity.availableGpus < modelMinGpus && (
-                    <p>
-                      This model requires at least {modelMinGpus} GPU(s) but only {gpuCapacity.availableGpus} are available in the cluster.
-                    </p>
-                  )}
-                  {hasGpuCountWarning && gpuCapacity.maxContiguousAvailable < modelMinGpus && gpuCapacity.availableGpus >= modelMinGpus && (
-                    <p>
-                      This model requires {modelMinGpus} GPU(s) on a single node, but the largest available block is {gpuCapacity.maxContiguousAvailable} GPU(s).
-                    </p>
-                  )}
-                  <p className="text-xs mt-2">
-                    Cluster: {gpuCapacity.availableGpus}/{gpuCapacity.totalGpus} GPUs available • Max contiguous: {gpuCapacity.maxContiguousAvailable}
-                    {gpuMemoryGb && ` • ${gpuMemoryGb.toFixed(1)} GB per GPU`}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Deployment Form */}
-      <DeploymentForm model={model} />
+      <DeploymentForm
+        model={model}
+        detailedCapacity={detailedCapacity}
+        autoscaler={autoscaler}
+      />
     </div>
   )
 }

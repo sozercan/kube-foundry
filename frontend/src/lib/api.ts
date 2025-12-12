@@ -91,6 +91,15 @@ export type {
   MetricDefinition,
 } from '@kubefoundry/shared';
 
+// Autoscaler types
+export type {
+  AutoscalerDetectionResult,
+  AutoscalerStatusInfo,
+  DetailedClusterCapacity,
+  NodePoolInfo,
+  PodFailureReason,
+} from '@kubefoundry/shared';
+
 // Import types for internal use
 import type {
   Model,
@@ -115,6 +124,10 @@ import type {
   HfSecretStatus,
   HfUserInfo,
   HfModelSearchResponse,
+  AutoscalerDetectionResult,
+  AutoscalerStatusInfo,
+  DetailedClusterCapacity,
+  PodFailureReason,
 } from '@kubefoundry/shared';
 
 // ============================================================================
@@ -301,6 +314,26 @@ export const gpuOperatorApi = {
     }),
 
   getCapacity: () => request<ClusterGpuCapacity>('/installation/gpu-capacity'),
+
+  getDetailedCapacity: () => request<DetailedClusterCapacity>('/installation/gpu-capacity/detailed'),
+};
+
+// ============================================================================
+// Autoscaler API
+// ============================================================================
+
+export const autoscalerApi = {
+  /** Detect autoscaler type and health status */
+  detect: () => request<AutoscalerDetectionResult>('/autoscaler/detection'),
+
+  /** Get detailed autoscaler status from ConfigMap */
+  getStatus: () => request<AutoscalerStatusInfo>('/autoscaler/status'),
+
+  /** Get reasons why a deployment's pods are pending */
+  getPendingReasons: (deploymentName: string, namespace?: string) =>
+    request<{ reasons: PodFailureReason[] }>(
+      `/deployments/${encodeURIComponent(deploymentName)}/pending-reasons${namespace ? `?namespace=${encodeURIComponent(namespace)}` : ''}`
+    ),
 };
 
 // ============================================================================

@@ -46,6 +46,8 @@ export interface ClusterGpuCapacity {
   allocatedGpus: number;          // Sum of GPU requests from all pods
   availableGpus: number;          // totalGpus - allocatedGpus
   maxContiguousAvailable: number; // Highest available GPUs on any single node
+  maxNodeGpuCapacity: number;     // Largest GPU count on any single node
+  gpuNodeCount: number;           // Total number of nodes with GPUs
   totalMemoryGb?: number;         // Total GPU memory per GPU (e.g., 80 for A100 80GB)
   nodes: NodeGpuInfo[];           // Per-node breakdown
 }
@@ -93,18 +95,18 @@ class KubernetesService {
 
   async listDeployments(namespace: string, providerId?: string): Promise<DeploymentStatus[]> {
     logger.debug({ namespace }, 'listDeployments called');
-    
+
     // Get the provider (use specified or active provider)
     const activeProviderId = providerId || await configService.getActiveProviderId();
     const provider = providerRegistry.getProvider(activeProviderId);
     const crdConfig = provider.getCRDConfig();
-    
+
     try {
       logger.debug(
         { apiGroup: crdConfig.apiGroup, apiVersion: crdConfig.apiVersion, plural: crdConfig.plural },
         'Calling listNamespacedCustomObject'
       );
-      
+
       const response = await withRetry(
         () => this.customObjectsApi.listNamespacedCustomObject(
           crdConfig.apiGroup,
@@ -114,7 +116,7 @@ class KubernetesService {
         ),
         { operationName: 'listDeployments' }
       );
-      
+
       logger.debug({ statusCode: response.response.statusCode }, 'listNamespacedCustomObject success');
 
       const items = (response.body as { items?: unknown[] }).items || [];
@@ -128,7 +130,7 @@ class KubernetesService {
         logger.debug({ namespace }, 'CRD not found in namespace (provider may not be installed)');
         return [];
       }
-      
+
       // Log unexpected errors
       logger.error({ error: error?.message || error }, 'Unexpected error listing deployments');
       return [];
@@ -232,7 +234,7 @@ class KubernetesService {
   async checkProviderInstallation(providerId?: string): Promise<InstallationStatus> {
     const activeProviderId = providerId || await configService.getActiveProviderId();
     const provider = providerRegistry.getProvider(activeProviderId);
-    
+
     return provider.checkInstallation({
       customObjectsApi: this.customObjectsApi,
       coreV1Api: this.coreV1Api,
@@ -386,7 +388,7 @@ class KubernetesService {
           const gpuCount = parseInt(gpuCapacity, 10);
           if (gpuCount > 0) {
             nodeGpuMap.set(nodeName, { total: gpuCount, allocated: 0 });
-            
+
             // Try to detect GPU memory from node labels (prefer nvidia.com/gpu.memory)
             if (!detectedGpuMemoryGb) {
               // Primary: Use nvidia.com/gpu.memory label (value in MiB from GPU Feature Discovery)
@@ -397,7 +399,7 @@ class KubernetesService {
                   detectedGpuMemoryGb = Math.round(memoryMib / 1024); // Convert MiB to GB
                 }
               }
-              
+
               // Fallback: Detect from nvidia.com/gpu.product label
               if (!detectedGpuMemoryGb) {
                 const gpuProduct = node.metadata?.labels?.['nvidia.com/gpu.product'];
@@ -455,6 +457,7 @@ class KubernetesService {
       let totalGpus = 0;
       let allocatedGpus = 0;
       let maxContiguousAvailable = 0;
+      let maxNodeGpuCapacity = 0;
 
       for (const [nodeName, info] of nodeGpuMap) {
         const availableOnNode = Math.max(0, info.total - info.allocated);
@@ -467,6 +470,7 @@ class KubernetesService {
         totalGpus += info.total;
         allocatedGpus += info.allocated;
         maxContiguousAvailable = Math.max(maxContiguousAvailable, availableOnNode);
+        maxNodeGpuCapacity = Math.max(maxNodeGpuCapacity, info.total);
       }
 
       return {
@@ -474,6 +478,8 @@ class KubernetesService {
         allocatedGpus,
         availableGpus: totalGpus - allocatedGpus,
         maxContiguousAvailable,
+        maxNodeGpuCapacity,
+        gpuNodeCount: nodeGpuMap.size,
         totalMemoryGb: detectedGpuMemoryGb,
         nodes,
       };
@@ -484,8 +490,197 @@ class KubernetesService {
         allocatedGpus: 0,
         availableGpus: 0,
         maxContiguousAvailable: 0,
+        maxNodeGpuCapacity: 0,
+        gpuNodeCount: 0,
         nodes: [],
       };
+    }
+  }
+
+  /**
+   * Get detailed GPU capacity including per-node pool breakdown.
+   * This groups nodes by node pool labels and includes GPU model information.
+   */
+  async getDetailedClusterGpuCapacity(): Promise<import('@kubefoundry/shared').DetailedClusterCapacity> {
+    try {
+      // Get basic capacity first
+      const basicCapacity = await this.getClusterGpuCapacity();
+
+      // Step 1: Get all nodes and group by node pool
+      const nodesResponse = await withRetry(
+        () => this.coreV1Api.listNode(),
+        { operationName: 'getDetailedClusterGpuCapacity:listNodes' }
+      );
+
+      const nodePoolMap = new Map<string, {
+        gpuCount: number;
+        nodeCount: number;
+        availableGpus: number;
+        gpuModel?: string;
+      }>();
+
+      for (const node of nodesResponse.body.items) {
+        const nodeName = node.metadata?.name || 'unknown';
+        const gpuCapacity = node.status?.allocatable?.['nvidia.com/gpu'];
+
+        if (gpuCapacity) {
+          const gpuCount = parseInt(gpuCapacity, 10);
+          if (gpuCount > 0) {
+            // Determine node pool name from labels
+            // AKS uses: agentpool, kubernetes.azure.com/agentpool
+            // GKE uses: cloud.google.com/gke-nodepool
+            // EKS uses: eks.amazonaws.com/nodegroup
+            const nodePoolName =
+              node.metadata?.labels?.['agentpool'] ||
+              node.metadata?.labels?.['kubernetes.azure.com/agentpool'] ||
+              node.metadata?.labels?.['cloud.google.com/gke-nodepool'] ||
+              node.metadata?.labels?.['eks.amazonaws.com/nodegroup'] ||
+              'default';
+
+            // Get GPU model from labels
+            const gpuModel =
+              node.metadata?.labels?.['nvidia.com/gpu.product'] ||
+              node.metadata?.labels?.['accelerator'];
+
+            // Find available GPUs for this node
+            const nodeInfo = basicCapacity.nodes.find(n => n.nodeName === nodeName);
+            const nodeAvailableGpus = nodeInfo?.availableGpus || 0;
+
+            if (!nodePoolMap.has(nodePoolName)) {
+              nodePoolMap.set(nodePoolName, {
+                gpuCount: 0,
+                nodeCount: 0,
+                availableGpus: 0,
+                gpuModel,
+              });
+            }
+
+            const poolInfo = nodePoolMap.get(nodePoolName)!;
+            poolInfo.gpuCount += gpuCount;
+            poolInfo.nodeCount += 1;
+            poolInfo.availableGpus += nodeAvailableGpus;
+
+            // Update GPU model if not set or if we find a more specific one
+            if (!poolInfo.gpuModel && gpuModel) {
+              poolInfo.gpuModel = gpuModel;
+            }
+          }
+        }
+      }
+
+      // Convert to array
+      const nodePools: import('@kubefoundry/shared').NodePoolInfo[] = [];
+      for (const [name, info] of nodePoolMap) {
+        nodePools.push({
+          name,
+          gpuCount: info.gpuCount,
+          nodeCount: info.nodeCount,
+          availableGpus: info.availableGpus,
+          gpuModel: info.gpuModel,
+        });
+      }
+
+      return {
+        totalGpus: basicCapacity.totalGpus,
+        allocatedGpus: basicCapacity.allocatedGpus,
+        availableGpus: basicCapacity.availableGpus,
+        maxContiguousAvailable: basicCapacity.maxContiguousAvailable,
+        maxNodeGpuCapacity: basicCapacity.maxNodeGpuCapacity,
+        gpuNodeCount: basicCapacity.gpuNodeCount,
+        totalMemoryGb: basicCapacity.totalMemoryGb,
+        nodePools,
+      };
+    } catch (error) {
+      logger.error({ error }, 'Error getting detailed cluster GPU capacity');
+      return {
+        totalGpus: 0,
+        allocatedGpus: 0,
+        availableGpus: 0,
+        maxContiguousAvailable: 0,
+        maxNodeGpuCapacity: 0,
+        gpuNodeCount: 0,
+        nodePools: [],
+      };
+    }
+  }
+
+  /**
+   * Get failure reasons for a pending pod by parsing Kubernetes Events
+   */
+  async getPodFailureReasons(
+    podName: string,
+    namespace: string
+  ): Promise<import('@kubefoundry/shared').PodFailureReason[]> {
+    try {
+      // Get events for the pod
+      const eventsResponse = await withRetry(
+        () => this.coreV1Api.listNamespacedEvent(
+          namespace,
+          undefined,
+          undefined,
+          undefined,
+          `involvedObject.name=${podName}`
+        ),
+        { operationName: 'getPodFailureReasons' }
+      );
+
+      const reasons: import('@kubefoundry/shared').PodFailureReason[] = [];
+
+      for (const event of eventsResponse.body.items) {
+        // Focus on Warning events related to scheduling failures
+        if (event.type !== 'Warning') {
+          continue;
+        }
+
+        const reason = event.reason || 'Unknown';
+        const message = event.message || '';
+
+        // Analyze the event to determine if it's a resource constraint
+        const isResourceConstraint = reason === 'FailedScheduling' ||
+          message.toLowerCase().includes('insufficient');
+
+        let resourceType: 'gpu' | 'cpu' | 'memory' | undefined;
+        let canAutoscalerHelp = false;
+
+        if (isResourceConstraint) {
+          // Detect resource type from message
+          if (message.includes('nvidia.com/gpu')) {
+            resourceType = 'gpu';
+            canAutoscalerHelp = true; // Autoscaler can add GPU nodes
+          } else if (message.toLowerCase().includes('cpu')) {
+            resourceType = 'cpu';
+            canAutoscalerHelp = true;
+          } else if (message.toLowerCase().includes('memory')) {
+            resourceType = 'memory';
+            canAutoscalerHelp = true;
+          }
+
+          // Check for taint-related failures (autoscaler can't help with these)
+          if (message.toLowerCase().includes('taint') ||
+            message.toLowerCase().includes('toleration')) {
+            canAutoscalerHelp = false;
+          }
+
+          // Check for node selector failures (autoscaler can't help with these)
+          if (message.toLowerCase().includes('node selector') ||
+            message.toLowerCase().includes('didn\'t match')) {
+            canAutoscalerHelp = false;
+          }
+        }
+
+        reasons.push({
+          reason,
+          message,
+          isResourceConstraint,
+          resourceType,
+          canAutoscalerHelp,
+        });
+      }
+
+      return reasons;
+    } catch (error) {
+      logger.error({ error, podName, namespace }, 'Error getting pod failure reasons');
+      return [];
     }
   }
 
@@ -495,7 +690,7 @@ class KubernetesService {
    */
   private detectGpuMemoryFromProduct(gpuProduct: string): number | undefined {
     const product = gpuProduct.toLowerCase();
-    
+
     // NVIDIA Data Center GPUs
     if (product.includes('a100') && product.includes('80')) return 80;
     if (product.includes('a100') && product.includes('40')) return 40;
@@ -511,14 +706,14 @@ class KubernetesService {
     if (product.includes('t4')) return 16;
     if (product.includes('v100') && product.includes('32')) return 32;
     if (product.includes('v100')) return 16;
-    
+
     // NVIDIA Consumer GPUs
     if (product.includes('4090')) return 24;
     if (product.includes('4080')) return 16;
     if (product.includes('3090')) return 24;
     if (product.includes('3080') && product.includes('12')) return 12;
     if (product.includes('3080')) return 10;
-    
+
     return undefined;
   }
 }

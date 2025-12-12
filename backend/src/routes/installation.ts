@@ -29,6 +29,10 @@ const installation = new Hono()
     const capacity = await kubernetesService.getClusterGpuCapacity();
     return c.json(capacity);
   })
+  .get('/gpu-capacity/detailed', async (c) => {
+    const capacity = await kubernetesService.getDetailedClusterGpuCapacity();
+    return c.json(capacity);
+  })
   .post('/gpu-operator/install', async (c) => {
     const helmStatus = await helmService.checkHelmAvailable();
     if (!helmStatus.available) {

@@ -201,6 +201,115 @@ Install the NVIDIA GPU Operator via Helm.
 }
 ```
 
+### GET /installation/gpu-capacity/detailed
+Get detailed GPU capacity with node pool breakdown.
+
+**Response:**
+```json
+{
+  "totalGpus": 4,
+  "allocatedGpus": 1,
+  "availableGpus": 3,
+  "maxContiguousAvailable": 2,
+  "maxNodeGpuCapacity": 2,
+  "gpuNodeCount": 2,
+  "totalMemoryGb": 80,
+  "nodePools": [
+    {
+      "name": "gpu",
+      "gpuCount": 4,
+      "nodeCount": 2,
+      "availableGpus": 3,
+      "gpuModel": "NVIDIA-A100-SXM4-80GB"
+    }
+  ]
+}
+```
+
+**Notes:**
+- Groups nodes by node pool (agentpool, kubernetes.azure.com/agentpool, etc.)
+- Shows per-pool GPU capacity and availability
+- Used for capacity planning and autoscaler guidance
+
+## Autoscaler
+
+### GET /autoscaler/detection
+Detect cluster autoscaler type and health status.
+
+**Response:**
+```json
+{
+  "detected": true,
+  "type": "aks-managed",
+  "healthy": true,
+  "message": "Cluster Autoscaler running on 1 node group(s)",
+  "nodeGroupCount": 1
+}
+```
+
+**Autoscaler Types:**
+- `aks-managed` - AKS managed cluster autoscaler (Azure)
+- `cluster-autoscaler` - Self-managed cluster autoscaler (any cloud)
+
+**Detection Logic:**
+- Primary: Checks for `cluster-autoscaler-status` ConfigMap in `kube-system`
+- Fallback: Checks for `cluster-autoscaler` Deployment
+- Health: ConfigMap timestamp < 5 minutes = healthy
+
+### GET /autoscaler/status
+Get detailed autoscaler status from ConfigMap.
+
+**Response:**
+```json
+{
+  "health": "Healthy",
+  "lastUpdated": "2025-01-15T10:30:00Z",
+  "nodeGroups": [
+    {
+      "name": "gpu",
+      "health": "Healthy",
+      "minSize": 1,
+      "maxSize": 10,
+      "currentSize": 2
+    }
+  ]
+}
+```
+
+### GET /deployments/:name/pending-reasons
+Get reasons why deployment pods are pending (unschedulable).
+
+**Query Parameters:**
+- `namespace` (optional) - Deployment namespace
+
+**Response:**
+```json
+{
+  "reasons": [
+    {
+      "reason": "FailedScheduling",
+      "message": "0/3 nodes are available: 3 Insufficient nvidia.com/gpu",
+      "count": 2,
+      "firstSeen": "2025-01-15T10:30:00Z",
+      "lastSeen": "2025-01-15T10:35:00Z",
+      "type": "gpu",
+      "canAutoscalerHelp": true
+    }
+  ]
+}
+```
+
+**Failure Types:**
+- `gpu` - Insufficient GPU resources
+- `cpu` - Insufficient CPU resources
+- `memory` - Insufficient memory
+- `taint` - Node taint preventing scheduling (autoscaler cannot help)
+
+**Notes:**
+- Only returns reasons for pending pods
+- `canAutoscalerHelp` indicates if autoscaler can provision resources
+- Used to display intelligent guidance in deployment UI
+
 ## Models
 
 ### GET /models

@@ -23,6 +23,7 @@ import {
   installation,
   oauth,
   secrets,
+  autoscaler,
 } from './routes';
 
 // Load static files at startup
@@ -95,7 +96,7 @@ app.use('/api/*', async (c, next) => {
 
   // Validate token via Kubernetes TokenReview
   const result = await authService.validateToken(token);
-  
+
   if (!result.valid) {
     logger.warn({ error: result.error }, 'Token validation failed');
     return c.json(
@@ -120,6 +121,7 @@ app.route('/api/deployments', deployments);
 app.route('/api/installation', installation);
 app.route('/api/oauth', oauth);
 app.route('/api/secrets', secrets);
+app.route('/api/autoscaler', autoscaler);
 
 // Static file serving middleware - uses Bun.file() for zero-copy serving
 app.use('*', async (c, next) => {

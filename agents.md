@@ -28,6 +28,12 @@ make compile-all         # Cross-compile for all platforms
 
 **Always run `bun run test` after implementing functionality to verify both frontend and backend changes.**
 
+**Always validate changes immediately after editing files:**
+- After editing frontend files: Check for TypeScript/syntax errors using `get_errors` tool
+- After editing backend files: Check for TypeScript/syntax errors using `get_errors` tool
+- If errors are found: Fix them before proceeding or informing the user
+- Never hand back to the user with syntax or compile errors
+
 **Always update relevant documentation** (this file, `docs/`, `README.md`, `CONTRIBUTING.md`) after making architectural or stack changes.
 
 ## Documentation (Progressive Disclosure)

@@ -12,18 +12,22 @@ import { useSettings } from '@/hooks/useSettings'
 import { useHuggingFaceStatus } from '@/hooks/useHuggingFace'
 import { useToast } from '@/hooks/useToast'
 import { generateDeploymentName, cn } from '@/lib/utils'
-import { type Model } from '@/lib/api'
-import { ChevronDown, AlertCircle, Rocket, CheckCircle2 } from 'lucide-react'
+import { type Model, type DetailedClusterCapacity, type AutoscalerDetectionResult } from '@/lib/api'
+import { ChevronDown, AlertCircle, Rocket, CheckCircle2, Sparkles } from 'lucide-react'
+import { CapacityWarning } from './CapacityWarning'
+import { calculateGpuRecommendation } from '@/lib/gpu-recommendations'
 
 interface DeploymentFormProps {
   model: Model
+  detailedCapacity?: DetailedClusterCapacity
+  autoscaler?: AutoscalerDetectionResult
 }
 
 type Engine = 'vllm' | 'sglang' | 'trtllm'
 type RouterMode = 'none' | 'kv' | 'round-robin'
 type DeploymentMode = 'aggregated' | 'disaggregated'
 
-export function DeploymentForm({ model }: DeploymentFormProps) {
+export function DeploymentForm({ model, detailedCapacity, autoscaler }: DeploymentFormProps) {
   const navigate = useNavigate()
   const { toast } = useToast()
   const createDeployment = useCreateDeployment()
@@ -55,7 +59,27 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
     decodeReplicas: 1,
     prefillGpus: 1,
     decodeGpus: 1,
+    // GPU resources for aggregated mode
+    resources: {
+      gpu: undefined, // Will be set from recommendation
+    },
   })
+
+  // Calculate GPU recommendation based on model characteristics
+  const gpuRecommendation = calculateGpuRecommendation(model, detailedCapacity)
+
+  // Set initial GPU value from recommendation when component mounts
+  useEffect(() => {
+    if (config.resources?.gpu === undefined && gpuRecommendation.recommendedGpus > 0) {
+      setConfig(prev => ({
+        ...prev,
+        resources: {
+          ...prev.resources,
+          gpu: gpuRecommendation.recommendedGpus
+        }
+      }))
+    }
+  }, [gpuRecommendation.recommendedGpus])
 
   // Set namespace from active provider when settings load
   useEffect(() => {
@@ -77,7 +101,7 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
         }
       }
     }
-    
+
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [createDeployment.isProcessing, needsHfAuth])
@@ -87,16 +111,16 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
 
     try {
       await createDeployment.mutateAsync(config)
-      
+
       // Trigger confetti celebration!
       triggerConfetti()
-      
+
       toast({
         title: 'Deployment Created',
         description: `${config.name} is being deployed to ${config.namespace}`,
         variant: 'success',
       })
-      
+
       // Delay navigation slightly to let user see confetti
       setTimeout(() => {
         navigate('/deployments')
@@ -117,12 +141,33 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
     setConfig((prev) => ({ ...prev, [key]: value }))
   }
 
+  // Calculate total GPUs needed for the deployment
+  const calculateSelectedGpus = (): number => {
+    if (config.mode === 'disaggregated') {
+      // For disaggregated, calculate total GPUs across all workers
+      const prefillTotal = (config.prefillReplicas || 1) * (config.prefillGpus || 1);
+      const decodeTotal = (config.decodeReplicas || 1) * (config.decodeGpus || 1);
+      return prefillTotal + decodeTotal;
+    }
+    // For aggregated, multiply GPUs per replica by number of replicas
+    const gpusPerReplica = config.resources?.gpu || gpuRecommendation.recommendedGpus || 1;
+    const replicas = config.replicas || 1;
+    return gpusPerReplica * replicas;
+  }
+
+  const selectedGpus = calculateSelectedGpus()
+
+  // Calculate the maximum GPUs per single pod (for node placement constraints)
+  const maxGpusPerPod = config.mode === 'disaggregated'
+    ? Math.max(config.prefillGpus || 1, config.decodeGpus || 1)
+    : (config.resources?.gpu || gpuRecommendation.recommendedGpus || 1);
+
   // Status-aware button content
   const getButtonContent = () => {
     if (needsHfAuth) {
       return 'HuggingFace Auth Required'
     }
-    
+
     switch (createDeployment.status) {
       case 'validating':
         return 'Validating...'
@@ -164,8 +209,8 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
               <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
                 <strong>{model.name}</strong> is a gated model that requires HuggingFace authentication.
                 Please{' '}
-                <a 
-                  href="/settings" 
+                  <a
+                    href="/settings"
                   className="underline font-medium hover:text-yellow-900 dark:hover:text-yellow-100"
                 >
                   sign in with HuggingFace
@@ -296,6 +341,44 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
                 />
               </div>
 
+              {/* GPU per Replica with recommendation */}
+              <div className="space-y-2">
+                <Label htmlFor="gpusPerReplica" className="flex items-center gap-2">
+                  GPUs per Replica
+                  {config.resources?.gpu === gpuRecommendation.recommendedGpus && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      <Sparkles className="h-3 w-3" />
+                      Recommended
+                    </span>
+                  )}
+                </Label>
+                <Input
+                  id="gpusPerReplica"
+                  type="number"
+                  min={1}
+                  max={detailedCapacity?.maxGpusPerNode || 8}
+                  value={config.resources?.gpu || gpuRecommendation.recommendedGpus}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 1
+                    setConfig(prev => ({
+                      ...prev,
+                      resources: {
+                        ...prev.resources,
+                        gpu: value
+                      }
+                    }))
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {gpuRecommendation.reason}
+                  {gpuRecommendation.alternatives && gpuRecommendation.alternatives.length > 0 && (
+                    <span className="block mt-1">
+                      Consider: {gpuRecommendation.alternatives.join(', ')} GPUs
+                    </span>
+                  )}
+                </p>
+              </div>
+
               {/* Router Mode is only applicable to Dynamo provider */}
               {settings?.activeProvider?.id === 'dynamo' && (
                 <div className="space-y-2">
@@ -394,17 +477,17 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
         >
           <div className="flex items-center justify-between">
             <CardTitle>Advanced Options</CardTitle>
-            <ChevronDown 
+              <ChevronDown
               className={cn(
                 "h-5 w-5 text-muted-foreground transition-transform duration-200 ease-out",
                 showAdvanced && "rotate-180"
-              )} 
+                )}
             />
           </div>
         </CardHeader>
 
         {/* Smooth accordion animation */}
-        <div 
+          <div
           className={cn(
             "grid transition-all duration-300 ease-out-expo",
             showAdvanced ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
@@ -465,6 +548,19 @@ export function DeploymentForm({ model }: DeploymentFormProps) {
           </div>
         </div>
       </Card>
+
+        {/* Capacity Warning */}
+        {detailedCapacity && (
+          <CapacityWarning
+            selectedGpus={selectedGpus}
+            capacity={detailedCapacity}
+            autoscaler={autoscaler}
+            maxGpusPerPod={maxGpusPerPod}
+            deploymentMode={config.mode}
+            replicas={config.replicas}
+            gpusPerReplica={config.resources?.gpu || gpuRecommendation.recommendedGpus || 1}
+          />
+        )}
 
       {/* Submit Button */}
       <div className="flex gap-4">

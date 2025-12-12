@@ -5,3 +5,4 @@ export { default as deployments } from './deployments';
 export { default as installation } from './installation';
 export { default as oauth } from './oauth';
 export { default as secrets } from './secrets';
+export { default as autoscaler } from './autoscaler';

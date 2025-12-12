@@ -179,6 +179,52 @@ const deployments = new Hono()
       const metricsResponse = await metricsService.getDeploymentMetrics(name, resolvedNamespace);
       return c.json(metricsResponse);
     }
+)
+  .get(
+    '/:name/pending-reasons',
+    zValidator('param', deploymentParamsSchema),
+    zValidator('query', deploymentQuerySchema),
+    async (c) => {
+      const { name } = c.req.valid('param');
+      const { namespace } = c.req.valid('query');
+      const resolvedNamespace = namespace || (await configService.getDefaultNamespace());
+
+      try {
+        // Get deployment to find pending pods
+        const deployment = await kubernetesService.getDeployment(name, resolvedNamespace);
+
+        if (!deployment) {
+          throw new HTTPException(404, { message: 'Deployment not found' });
+        }
+
+        // Get all pending pods
+        const pendingPods = deployment.pods.filter(pod => pod.phase === 'Pending');
+
+        if (pendingPods.length === 0) {
+          return c.json({ reasons: [] });
+        }
+
+        // Get failure reasons for the first pending pod (they're typically the same)
+        const podName = pendingPods[0].name;
+        const reasons = await kubernetesService.getPodFailureReasons(podName, resolvedNamespace);
+
+        return c.json({ reasons });
+      } catch (error) {
+        if (error instanceof HTTPException) {
+          throw error;
+        }
+        logger.error({ error, name, namespace: resolvedNamespace }, 'Error getting pending reasons');
+        return c.json(
+          {
+            error: {
+              message: error instanceof Error ? error.message : 'Failed to get pending reasons',
+              statusCode: 500,
+            },
+          },
+          500
+        );
+      }
+    }
   );
 
 export default deployments;

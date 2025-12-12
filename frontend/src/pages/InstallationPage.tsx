@@ -7,10 +7,12 @@ import {
   useInstallProvider,
   useUpgradeProvider,
 } from '@/hooks/useInstallation'
+import { useAutoscalerDetection } from '@/hooks/useAutoscaler'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/useToast'
+import { AutoscalerGuidance } from '@/components/autoscaler/AutoscalerGuidance'
 import {
   CheckCircle,
   XCircle,
@@ -21,12 +23,14 @@ import {
   RefreshCw,
   Copy,
   Server,
+  Zap,
 } from 'lucide-react'
 
 export function InstallationPage() {
   const { data: settings } = useSettings()
   const { data: clusterStatus } = useClusterStatus()
   const { data: helmStatus, isLoading: helmLoading } = useHelmStatus()
+  const { data: autoscaler, isLoading: autoscalerLoading } = useAutoscalerDetection()
   const { toast } = useToast()
 
   const activeProviderId = settings?.config.activeProviderId || 'dynamo'
@@ -190,7 +194,85 @@ export function InstallationPage() {
           )}
         </CardContent>
       </Card>
+      {/* Cluster Autoscaling Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="h-5 w-5" />
+              Cluster Autoscaling
+            </div>
+            {autoscalerLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : autoscaler?.detected ? (
+              <Badge variant={autoscaler.healthy ? 'default' : 'destructive'}>
+                {autoscaler.healthy ? 'Healthy' : 'Unhealthy'}
+              </Badge>
+            ) : (
+              <Badge variant="secondary">Not Detected</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Automatically provision GPU nodes when deployments require more resources
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {autoscalerLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                  <span>Status</span>
+                  <div className="flex items-center gap-2">
+                    {autoscaler?.detected ? (
+                      <>
+                        {autoscaler.healthy ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                        )}
+                        <span className="font-medium">
+                          {autoscaler.type === 'aks-managed' ? 'AKS Managed' : 'Cluster Autoscaler'}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="h-4 w-4 text-gray-400" />
+                        <span className="text-muted-foreground">Not Detected</span>
+                      </>
+                    )}
+                  </div>
+                </div>
 
+                {autoscaler?.detected && autoscaler.nodeGroupCount !== undefined && (
+                  <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                    <span>Node Pools</span>
+                    <span className="font-medium">{autoscaler.nodeGroupCount}</span>
+                  </div>
+                )}
+
+                {autoscaler?.message && (
+                  <div className={`rounded-lg p-3 text-sm ${autoscaler.healthy
+                      ? 'bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200'
+                      : autoscaler.detected
+                        ? 'bg-yellow-50 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                    {autoscaler.message}
+                  </div>
+                )}
+              </div>
+
+              {autoscaler && !autoscaler.detected && (
+                <AutoscalerGuidance autoscaler={autoscaler} />
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
       {/* Installation Status */}
       <Card>
         <CardHeader>
@@ -236,7 +318,7 @@ export function InstallationPage() {
 
               {/* Action Buttons */}
               <div className="flex gap-3">
-                {!isInstalled ? (
+                {!isInstalled && (
                   <Button
                     onClick={handleInstall}
                     disabled={isInstalling || !helmAvailable || !clusterStatus?.connected}
@@ -251,25 +333,6 @@ export function InstallationPage() {
                       <>
                         <Download className="h-4 w-4" />
                         Install Provider
-                      </>
-                    )}
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleUpgrade}
-                    disabled={isInstalling || !helmAvailable}
-                    variant="outline"
-                    className="flex items-center gap-2"
-                  >
-                    {isInstalling ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Upgrading...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-4 w-4" />
-                        Upgrade Provider
                       </>
                     )}
                   </Button>

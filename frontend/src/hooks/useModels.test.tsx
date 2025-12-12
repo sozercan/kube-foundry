@@ -1,9 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { useModels, useModel, hfModelToModel } from './useModels'
-import { createWrapper, createTestQueryClient } from '@/test/test-utils'
-import { QueryClientProvider } from '@tanstack/react-query'
-import React from 'react'
+import { createWrapper } from '@/test/test-utils'
 import type { HfModelSearchResult } from '@/lib/api'
 
 describe('useModels', () => {
@@ -93,6 +91,7 @@ describe('hfModelToModel', () => {
       pipelineTag: 'text-generation',
       architectures: [],
       gated: false,
+      libraryName: 'transformers',
       parameterCount: 70_000_000_000,
       supportedEngines: ['vllm'],
       compatible: true,
@@ -112,6 +111,7 @@ describe('hfModelToModel', () => {
       pipelineTag: 'text-generation',
       architectures: [],
       gated: false,
+      libraryName: 'transformers',
       parameterCount: 125_000_000,
       supportedEngines: ['vllm'],
       compatible: true,
@@ -131,6 +131,7 @@ describe('hfModelToModel', () => {
       pipelineTag: 'text-generation',
       architectures: [],
       gated: false,
+      libraryName: 'transformers',
       supportedEngines: ['vllm'],
       compatible: true,
     }
@@ -149,6 +150,7 @@ describe('hfModelToModel', () => {
       pipelineTag: 'conversational',
       architectures: [],
       gated: false,
+      libraryName: 'transformers',
       supportedEngines: ['vllm'],
       compatible: true,
     }

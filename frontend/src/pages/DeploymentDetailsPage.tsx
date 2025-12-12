@@ -17,6 +17,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useAutoscalerDetection, usePendingReasons } from '@/hooks/useAutoscaler'
+import { PendingExplanation } from '@/components/deployments/PendingExplanation'
 
 export function DeploymentDetailsPage() {
   const { name } = useParams<{ name: string }>()
@@ -29,6 +31,14 @@ export function DeploymentDetailsPage() {
 
   const { data: deployment, isLoading, error } = useDeployment(name, namespace)
   const { data: pods } = useDeploymentPods(name, namespace)
+
+  // Autoscaler detection and pending reasons (only fetch when deployment is Pending)
+  const { data: autoscaler } = useAutoscalerDetection()
+  const { data: pendingReasons, isLoading: isPendingReasonsLoading } = usePendingReasons(
+    deployment?.name || '',
+    deployment?.namespace || '',
+    deployment?.phase === 'Pending'
+  )
 
   const handleDelete = async () => {
     if (!deployment) return
@@ -147,6 +157,15 @@ export function DeploymentDetailsPage() {
         </CardHeader>
       </Card>
 
+      {/* Pending Explanation - shown when deployment is Pending */}
+      {deployment.phase === 'Pending' && (
+        <PendingExplanation
+          reasons={pendingReasons?.reasons || []}
+          autoscaler={autoscaler}
+          isLoading={isPendingReasonsLoading}
+        />
+      )}
+
       {/* Port Forward Instructions */}
       <Card>
         <CardHeader>
@@ -170,7 +189,7 @@ export function DeploymentDetailsPage() {
           <p className="text-xs text-muted-foreground mt-2">
             After running the command, access the model at http://localhost:8000
           </p>
-          
+
           {/* Ayna Integration */}
           <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t">
             <a href={generateAynaUrl({
