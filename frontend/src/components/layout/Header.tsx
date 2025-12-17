@@ -44,11 +44,6 @@ export function Header() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          
-          <h1 className="text-base md:text-lg font-semibold truncate">
-            <span className="hidden sm:inline">KubeFoundry - </span>
-            Model Deployment Platform
-          </h1>
         </div>
 
         {/* Right side: status badges */}
