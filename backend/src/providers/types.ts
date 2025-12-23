@@ -54,6 +54,16 @@ export interface InstallationStep {
 }
 
 /**
+ * Resources to clean up during uninstallation
+ */
+export interface UninstallResources {
+  /** CRD names to delete (e.g., 'workspaces.kaito.sh') */
+  crds: string[];
+  /** Namespaces to delete */
+  namespaces: string[];
+}
+
+/**
  * Provider interface - all inference providers must implement this
  */
 export interface Provider {
@@ -135,6 +145,12 @@ export interface Provider {
    * Should be called before installation to ensure latest version is used
    */
   refreshVersion?(): Promise<string>;
+
+  /**
+   * Get resources to clean up during uninstallation (CRDs, namespaces)
+   * This enables complete cleanup when uninstalling a provider
+   */
+  getUninstallResources(): UninstallResources;
 }
 
 /**

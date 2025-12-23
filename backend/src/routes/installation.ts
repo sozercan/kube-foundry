@@ -289,25 +289,49 @@ const installation = new Hono()
 
       const provider = providerRegistry.getProvider(id);
       const charts = provider.getHelmCharts();
+      const uninstallResources = provider.getUninstallResources();
 
       logger.info(
         { providerId: id, providerName: provider.name },
         `Starting uninstall of ${provider.name}`
       );
 
-      const results: Array<{ chart: string; success: boolean; output: string; error?: string }> =
+      const results: Array<{ step: string; success: boolean; output: string; error?: string }> =
         [];
 
+      // Step 1: Uninstall Helm charts (in reverse order)
       for (const chart of [...charts].reverse()) {
         const result = await helmService.uninstall(chart.name, chart.namespace, (data, stream) => {
           logger.debug({ stream }, data.trim());
         });
 
         results.push({
-          chart: chart.name,
+          step: `Uninstall Helm chart: ${chart.name}`,
           success: result.success,
           output: result.stdout,
           error: result.stderr || undefined,
+        });
+      }
+
+      // Step 2: Delete CRDs
+      for (const crdName of uninstallResources.crds) {
+        const result = await kubernetesService.deleteCRD(crdName);
+        results.push({
+          step: `Delete CRD: ${crdName}`,
+          success: result.success,
+          output: result.message,
+          error: result.success ? undefined : result.message,
+        });
+      }
+
+      // Step 3: Delete namespaces
+      for (const namespace of uninstallResources.namespaces) {
+        const result = await kubernetesService.deleteNamespace(namespace);
+        results.push({
+          step: `Delete namespace: ${namespace}`,
+          success: result.success,
+          output: result.message,
+          error: result.success ? undefined : result.message,
         });
       }
 

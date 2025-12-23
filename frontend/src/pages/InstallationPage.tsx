@@ -5,11 +5,20 @@ import {
   useHelmStatus,
   useProviderInstallationStatus,
   useInstallProvider,
+  useUninstallProvider,
 } from '@/hooks/useInstallation'
 import { useAutoscalerDetection } from '@/hooks/useAutoscaler'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useToast } from '@/hooks/useToast'
 import { AutoscalerGuidance } from '@/components/autoscaler/AutoscalerGuidance'
 import { cn } from '@/lib/utils'
@@ -24,9 +33,10 @@ import {
   Copy,
   Server,
   Zap,
+  Trash2,
 } from 'lucide-react'
 
-type RuntimeId = 'dynamo' | 'kuberay'
+type RuntimeId = 'dynamo' | 'kuberay' | 'kaito'
 
 export function InstallationPage() {
   const { data: runtimesStatus, isLoading: runtimesLoading } = useRuntimesStatus()
@@ -57,8 +67,11 @@ export function InstallationPage() {
   } = useProviderInstallationStatus(selectedRuntime || 'dynamo')
 
   const installProvider = useInstallProvider()
+  const uninstallProvider = useUninstallProvider()
 
   const [isInstalling, setIsInstalling] = useState(false)
+  const [isUninstalling, setIsUninstalling] = useState(false)
+  const [showUninstallDialog, setShowUninstallDialog] = useState(false)
 
   const runtimes = runtimesStatus?.runtimes || []
 
@@ -90,6 +103,35 @@ export function InstallationPage() {
       })
     } finally {
       setIsInstalling(false)
+    }
+  }
+
+  const handleUninstall = async (providerId: RuntimeId) => {
+    setIsUninstalling(true)
+    setShowUninstallDialog(false)
+    try {
+      const result = await uninstallProvider.mutateAsync(providerId)
+      if (result.success) {
+        toast({
+          title: 'Uninstall Complete',
+          description: result.message,
+        })
+        refetchInstallation()
+      } else {
+        toast({
+          title: 'Uninstall Failed',
+          description: result.message,
+          variant: 'destructive',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Uninstall Error',
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsUninstalling(false)
     }
   }
 
@@ -187,68 +229,6 @@ export function InstallationPage() {
         </CardContent>
       </Card>
 
-      {/* Runtimes Overview - Side by Side Cards */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Available Runtimes</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {runtimes.map((runtime) => (
-            <Card
-              key={runtime.id}
-              className={cn(
-                'transition-all cursor-pointer',
-                effectiveRuntime === runtime.id
-                  ? 'ring-2 ring-primary'
-                  : 'hover:border-primary/50'
-              )}
-              onClick={() => setSelectedRuntime(runtime.id as RuntimeId)}
-            >
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center justify-between">
-                  <span>{runtime.name}</span>
-                  <Badge variant={runtime.installed ? (runtime.healthy ? 'default' : 'secondary') : 'destructive'}>
-                    {runtime.installed ? (runtime.healthy ? 'Healthy' : 'Unhealthy') : 'Not Installed'}
-                  </Badge>
-                </CardTitle>
-                <CardDescription>
-                  {runtime.id === 'kaito'
-                    ? 'Kubernetes AI Toolchain Operator for simplified model deployment'
-                    : runtime.id === 'dynamo'
-                      ? 'NVIDIA Dynamo for high-performance GPU inference with vLLM, SGLang, and TensorRT-LLM'
-                      : 'KubeRay for distributed Ray-based model serving with vLLM'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">CRD</span>
-                    {runtime.installed ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-gray-400" />
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Operator</span>
-                    {runtime.healthy ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : runtime.installed ? (
-                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-gray-400" />
-                    )}
-                  </div>
-                  {runtime.version && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Version</span>
-                      <span className="font-mono text-xs">{runtime.version}</span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
       {/* Cluster Autoscaling Status */}
       <Card>
         <CardHeader>
@@ -329,6 +309,69 @@ export function InstallationPage() {
         </CardContent>
       </Card>
 
+      {/* Runtimes Overview - Side by Side Cards */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4">Available Runtimes</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {runtimes.map((runtime) => (
+            <Card
+              key={runtime.id}
+              className={cn(
+                'transition-all cursor-pointer',
+                effectiveRuntime === runtime.id
+                  ? 'ring-2 ring-primary'
+                  : 'hover:border-primary/50'
+              )}
+              onClick={() => setSelectedRuntime(runtime.id as RuntimeId)}
+            >
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center justify-between">
+                  <span>{runtime.name}</span>
+                  <Badge variant={runtime.installed ? (runtime.healthy ? 'default' : 'secondary') : 'destructive'}>
+                    {runtime.installed ? (runtime.healthy ? 'Healthy' : 'Unhealthy') : 'Not Installed'}
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  {runtime.id === 'kaito'
+                    ? 'Kubernetes AI Toolchain Operator for simplified model deployment'
+                    : runtime.id === 'dynamo'
+                      ? 'NVIDIA Dynamo for high-performance GPU inference with vLLM, SGLang, and TensorRT-LLM'
+                      : 'KubeRay for distributed Ray-based model serving with vLLM'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">CRD</span>
+                    {runtime.installed ? (
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-gray-400" />
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Operator</span>
+                    {runtime.healthy ? (
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    ) : runtime.installed ? (
+                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-gray-400" />
+                    )}
+                  </div>
+                  {runtime.version && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Version</span>
+                      <span className="font-mono text-xs">{runtime.version}</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
       {/* Selected Runtime Installation Details */}
       <Card>
         <CardHeader>
@@ -389,6 +432,27 @@ export function InstallationPage() {
                       <>
                         <Download className="h-4 w-4" />
                         Install {runtimes.find(r => r.id === effectiveRuntime)?.name || 'Runtime'}
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {isInstalled && (
+                  <Button
+                    variant="destructive"
+                    onClick={() => setShowUninstallDialog(true)}
+                    disabled={isUninstalling || !helmAvailable || !clusterStatus?.connected}
+                    className="flex items-center gap-2"
+                  >
+                    {isUninstalling ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Uninstalling...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-4 w-4" />
+                        Uninstall {runtimes.find(r => r.id === effectiveRuntime)?.name || 'Runtime'}
                       </>
                     )}
                   </Button>
@@ -499,6 +563,50 @@ export function InstallationPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Uninstall Confirmation Dialog */}
+      <Dialog open={showUninstallDialog} onOpenChange={setShowUninstallDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">
+              Uninstall {runtimes.find(r => r.id === effectiveRuntime)?.name || 'Runtime'}?
+            </DialogTitle>
+            <DialogDescription>
+              This will uninstall all Helm releases associated with{' '}
+              <strong>{runtimes.find(r => r.id === effectiveRuntime)?.name || 'this runtime'}</strong>.
+              Any existing deployments using this runtime will stop working.
+              <br /><br />
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowUninstallDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleUninstall(effectiveRuntime)}
+              disabled={isUninstalling}
+              className="flex items-center gap-2"
+            >
+              {isUninstalling ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Uninstalling...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  Uninstall
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

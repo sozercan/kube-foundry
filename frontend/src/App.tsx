@@ -5,7 +5,6 @@ import { DeployPage } from './pages/DeployPage'
 import { DeploymentsPage } from './pages/DeploymentsPage'
 import { DeploymentDetailsPage } from './pages/DeploymentDetailsPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { InstallationPage } from './pages/InstallationPage'
 import { LoginPage } from './pages/LoginPage'
 import { HuggingFaceCallbackPage } from './pages/HuggingFaceCallbackPage'
 import { Toaster } from './components/ui/toaster'
@@ -107,13 +106,7 @@ function AppRoutes() {
       />
       <Route
         path="/installation"
-        element={
-          <ProtectedRoute>
-            <MainLayout>
-              <InstallationPage />
-            </MainLayout>
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/settings?tab=runtimes" replace />}
       />
     </Routes>
   );

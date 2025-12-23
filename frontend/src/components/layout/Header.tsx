@@ -1,36 +1,15 @@
-import { Link } from 'react-router-dom'
 import { useClusterStatus } from '@/hooks/useClusterStatus'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, WifiOff, AlertTriangle, Menu } from 'lucide-react'
+import { Wifi, WifiOff, Menu } from 'lucide-react'
 import { useSidebar } from './MainLayout'
 
 export function Header() {
   const { data: clusterStatus, isLoading } = useClusterStatus()
   const { toggle } = useSidebar()
 
-  const providerInstalled = clusterStatus?.providerInstallation?.installed ?? false
-  const showProviderWarning = clusterStatus?.connected && !providerInstalled && !isLoading
-
   return (
     <header className="border-b bg-card">
-      {showProviderWarning && (
-        <div className="flex items-center justify-between gap-2 bg-yellow-100 px-4 md:px-6 py-2 text-sm text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-200">
-          <div className="flex items-center gap-2 min-w-0">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span className="truncate">
-              Provider "{clusterStatus?.provider?.name || 'Unknown'}" is not installed.
-            </span>
-          </div>
-          <Link
-            to="/settings"
-            className="font-medium underline hover:no-underline whitespace-nowrap"
-          >
-            View instructions →
-          </Link>
-        </div>
-      )}
-
       <div className="flex h-14 md:h-16 items-center justify-between px-4 md:px-6 gap-4">
         {/* Left side: hamburger + title */}
         <div className="flex items-center gap-3 min-w-0">

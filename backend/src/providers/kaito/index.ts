@@ -1,9 +1,67 @@
 import * as k8s from '@kubernetes/client-node';
 import type { DeploymentConfig, DeploymentStatus, DeploymentPhase, MetricDefinition, MetricsEndpointConfig } from '@kubefoundry/shared';
-import type { Provider, CRDConfig, HelmRepo, HelmChart, InstallationStatus, InstallationStep } from '../types';
+import type { Provider, CRDConfig, HelmRepo, HelmChart, InstallationStatus, InstallationStep, UninstallResources } from '../types';
 import { kaitoDeploymentConfigSchema, type KaitoDeploymentConfig } from './schema';
 import { aikitService, GGUF_RUNNER_IMAGE } from '../../services/aikit';
 import logger from '../../lib/logger';
+
+// Default fallback version if GitHub fetch fails
+const DEFAULT_KAITO_VERSION = '0.8.0';
+
+// GitHub API URL for KAITO releases
+const KAITO_GITHUB_RELEASES_URL = 'https://api.github.com/repos/kaito-project/kaito/releases/latest';
+
+// Cache for the latest version
+let cachedKaitoVersion: string | null = null;
+let kaitoCacheTimestamp: number = 0;
+const CACHE_TTL_MS = 3600000; // 1 hour
+
+/**
+ * Fetch the latest KAITO version from GitHub releases
+ */
+async function fetchLatestKaitoVersion(): Promise<string> {
+  // Check cache first
+  if (cachedKaitoVersion && (Date.now() - kaitoCacheTimestamp) < CACHE_TTL_MS) {
+    return cachedKaitoVersion;
+  }
+
+  try {
+    const response = await fetch(KAITO_GITHUB_RELEASES_URL, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'KubeFoundry',
+      },
+    });
+
+    if (!response.ok) {
+      logger.warn({ status: response.status }, 'Failed to fetch KAITO version from GitHub');
+      return cachedKaitoVersion || process.env.KAITO_VERSION || DEFAULT_KAITO_VERSION;
+    }
+
+    const data = await response.json() as { tag_name?: string };
+    const tagName = data.tag_name;
+
+    if (tagName) {
+      // Remove 'v' prefix if present (e.g., 'v0.6.0' -> '0.6.0')
+      cachedKaitoVersion = tagName.startsWith('v') ? tagName.slice(1) : tagName;
+      kaitoCacheTimestamp = Date.now();
+      logger.info({ version: cachedKaitoVersion }, 'Fetched latest KAITO version from GitHub');
+      return cachedKaitoVersion;
+    }
+
+    return cachedKaitoVersion || process.env.KAITO_VERSION || DEFAULT_KAITO_VERSION;
+  } catch (error) {
+    logger.warn({ error }, 'Error fetching KAITO version from GitHub, using fallback');
+    return cachedKaitoVersion || process.env.KAITO_VERSION || DEFAULT_KAITO_VERSION;
+  }
+}
+
+/**
+ * Get the current KAITO version (sync - uses cached value or fallback)
+ */
+function getKaitoVersion(): string {
+  return cachedKaitoVersion || process.env.KAITO_VERSION || DEFAULT_KAITO_VERSION;
+}
 
 /**
  * KAITO Provider
@@ -23,6 +81,14 @@ export class KaitoProvider implements Provider {
   private static readonly API_VERSION = 'v1beta1';
   private static readonly CRD_PLURAL = 'workspaces';
   private static readonly CRD_KIND = 'Workspace';
+
+  /**
+   * Refresh the cached KAITO version from GitHub releases
+   * Call this before installation to ensure we have the latest version
+   */
+  async refreshVersion(): Promise<string> {
+    return fetchLatestKaitoVersion();
+  }
 
   getCRDConfig(): CRDConfig {
     return {
@@ -362,6 +428,7 @@ export class KaitoProvider implements Provider {
   }
 
   getInstallationSteps(): InstallationStep[] {
+    const version = getKaitoVersion();
     return [
       {
         title: 'Add KAITO Helm Repository',
@@ -375,8 +442,8 @@ export class KaitoProvider implements Provider {
       },
       {
         title: 'Install KAITO Workspace Operator',
-        command: 'helm upgrade --install kaito-workspace kaito/workspace -n kaito-workspace --create-namespace',
-        description: 'Install the KAITO workspace operator which manages AI workloads.',
+        command: `helm upgrade --install kaito-workspace kaito/workspace --version ${version} -n kaito-workspace --create-namespace --wait`,
+        description: `Install the KAITO workspace operator v${version} which manages AI workloads.`,
       },
     ];
   }
@@ -391,10 +458,12 @@ export class KaitoProvider implements Provider {
   }
 
   getHelmCharts(): HelmChart[] {
+    const version = getKaitoVersion();
     return [
       {
         name: 'kaito-workspace',
         chart: 'kaito/workspace',
+        version,
         namespace: 'kaito-workspace',
         createNamespace: true,
       },
@@ -536,6 +605,18 @@ export class KaitoProvider implements Provider {
         category: 'throughput',
       },
     ];
+  }
+
+  getUninstallResources(): UninstallResources {
+    return {
+      // KAITO CRDs: workspaces.kaito.sh, ragengines.kaito.sh
+      crds: [
+        `${KaitoProvider.CRD_PLURAL}.${KaitoProvider.API_GROUP}`,
+        `ragengines.${KaitoProvider.API_GROUP}`,
+      ],
+      // KAITO operator namespace
+      namespaces: ['kaito-workspace'],
+    };
   }
 }
 

@@ -1,6 +1,6 @@
 import * as k8s from '@kubernetes/client-node';
 import type { DeploymentConfig, DeploymentStatus, DeploymentPhase, MetricDefinition, MetricsEndpointConfig } from '@kubefoundry/shared';
-import type { Provider, CRDConfig, HelmRepo, HelmChart, InstallationStatus, InstallationStep } from '../types';
+import type { Provider, CRDConfig, HelmRepo, HelmChart, InstallationStatus, InstallationStep, UninstallResources } from '../types';
 import { dynamoDeploymentConfigSchema, type DynamoDeploymentConfig } from './schema';
 import logger from '../../lib/logger';
 
@@ -690,6 +690,20 @@ export class DynamoProvider implements Provider {
         category: 'throughput',
       },
     ];
+  }
+
+  getUninstallResources(): UninstallResources {
+    return {
+      // Dynamo CRDs installed by dynamo-crds chart
+      crds: [
+        `${DynamoProvider.CRD_PLURAL}.${DynamoProvider.API_GROUP}`,
+        `dynamodeployments.${DynamoProvider.API_GROUP}`,
+        `dynamojobs.${DynamoProvider.API_GROUP}`,
+        `dynamocomponentsets.${DynamoProvider.API_GROUP}`,
+      ],
+      // Dynamo platform namespace
+      namespaces: ['dynamo-system'],
+    };
   }
 }
 

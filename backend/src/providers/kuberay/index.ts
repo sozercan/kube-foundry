@@ -1,8 +1,66 @@
 import * as k8s from '@kubernetes/client-node';
 import type { DeploymentConfig, DeploymentStatus, DeploymentPhase, MetricDefinition, MetricsEndpointConfig } from '@kubefoundry/shared';
-import type { Provider, CRDConfig, HelmRepo, HelmChart, InstallationStatus, InstallationStep } from '../types';
+import type { Provider, CRDConfig, HelmRepo, HelmChart, InstallationStatus, InstallationStep, UninstallResources } from '../types';
 import { kuberayDeploymentConfigSchema, type KubeRayDeploymentConfig } from './schema';
 import logger from '../../lib/logger';
+
+// Default fallback version if GitHub fetch fails
+const DEFAULT_KUBERAY_VERSION = '1.5.1';
+
+// GitHub API URL for KubeRay releases
+const KUBERAY_GITHUB_RELEASES_URL = 'https://api.github.com/repos/ray-project/kuberay/releases/latest';
+
+// Cache for the latest version
+let cachedKuberayVersion: string | null = null;
+let kuberayCacheTimestamp: number = 0;
+const CACHE_TTL_MS = 3600000; // 1 hour
+
+/**
+ * Fetch the latest KubeRay version from GitHub releases
+ */
+async function fetchLatestKuberayVersion(): Promise<string> {
+  // Check cache first
+  if (cachedKuberayVersion && (Date.now() - kuberayCacheTimestamp) < CACHE_TTL_MS) {
+    return cachedKuberayVersion;
+  }
+
+  try {
+    const response = await fetch(KUBERAY_GITHUB_RELEASES_URL, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'KubeFoundry',
+      },
+    });
+
+    if (!response.ok) {
+      logger.warn({ status: response.status }, 'Failed to fetch KubeRay version from GitHub');
+      return cachedKuberayVersion || process.env.KUBERAY_VERSION || DEFAULT_KUBERAY_VERSION;
+    }
+
+    const data = await response.json() as { tag_name?: string };
+    const tagName = data.tag_name;
+
+    if (tagName) {
+      // Remove 'v' prefix if present (e.g., 'v1.5.1' -> '1.5.1')
+      cachedKuberayVersion = tagName.startsWith('v') ? tagName.slice(1) : tagName;
+      kuberayCacheTimestamp = Date.now();
+      logger.info({ version: cachedKuberayVersion }, 'Fetched latest KubeRay version from GitHub');
+      return cachedKuberayVersion;
+    }
+
+    return cachedKuberayVersion || process.env.KUBERAY_VERSION || DEFAULT_KUBERAY_VERSION;
+  } catch (error) {
+    logger.warn({ error }, 'Error fetching KubeRay version from GitHub, using fallback');
+    return cachedKuberayVersion || process.env.KUBERAY_VERSION || DEFAULT_KUBERAY_VERSION;
+  }
+}
+
+/**
+ * Get the current KubeRay version (sync - uses cached value or fallback)
+ */
+function getKuberayVersion(): string {
+  return cachedKuberayVersion || process.env.KUBERAY_VERSION || DEFAULT_KUBERAY_VERSION;
+}
 
 /**
  * KubeRay Provider
@@ -19,6 +77,14 @@ export class KubeRayProvider implements Provider {
   private static readonly API_VERSION = 'v1';
   private static readonly CRD_PLURAL = 'rayservices';
   private static readonly CRD_KIND = 'RayService';
+
+  /**
+   * Refresh the cached KubeRay version from GitHub releases
+   * Call this before installation to ensure we have the latest version
+   */
+  async refreshVersion(): Promise<string> {
+    return fetchLatestKuberayVersion();
+  }
 
   getCRDConfig(): CRDConfig {
     return {
@@ -612,6 +678,7 @@ export class KubeRayProvider implements Provider {
   }
 
   getInstallationSteps(): InstallationStep[] {
+    const version = getKuberayVersion();
     return [
       {
         title: 'Add KubeRay Helm Repository',
@@ -625,8 +692,8 @@ export class KubeRayProvider implements Provider {
       },
       {
         title: 'Install KubeRay Operator',
-        command: 'helm install kuberay-operator kuberay/kuberay-operator --version 1.5.1',
-        description: 'Install the KubeRay operator which manages RayService and RayCluster resources.',
+        command: `helm install kuberay-operator kuberay/kuberay-operator --version ${version}`,
+        description: `Install the KubeRay operator v${version} which manages RayService and RayCluster resources.`,
       },
     ];
   }
@@ -641,11 +708,12 @@ export class KubeRayProvider implements Provider {
   }
 
   getHelmCharts(): HelmChart[] {
+    const version = getKuberayVersion();
     return [
       {
         name: 'kuberay-operator',
         chart: 'kuberay/kuberay-operator',
-        version: '1.5.1',
+        version,
         namespace: 'default',
         createNamespace: false,
       },
@@ -818,6 +886,20 @@ export class KubeRayProvider implements Provider {
         category: 'errors',
       },
     ];
+  }
+
+  getUninstallResources(): UninstallResources {
+    return {
+      // KubeRay CRDs
+      crds: [
+        `${KubeRayProvider.CRD_PLURAL}.${KubeRayProvider.API_GROUP}`,
+        `rayclusters.${KubeRayProvider.API_GROUP}`,
+        `rayjobs.${KubeRayProvider.API_GROUP}`,
+      ],
+      // KubeRay operator runs in default namespace, so we don't delete any namespace
+      // as it would be too destructive
+      namespaces: [],
+    };
   }
 }
 

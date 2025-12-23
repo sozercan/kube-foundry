@@ -1,8 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSettings } from '@/hooks/useSettings'
 import { useRuntimesStatus } from '@/hooks/useRuntimes'
 import { useClusterStatus } from '@/hooks/useClusterStatus'
-import { useHelmStatus } from '@/hooks/useInstallation'
+import {
+  useHelmStatus,
+  useProviderInstallationStatus,
+  useInstallProvider,
+  useUninstallProvider,
+} from '@/hooks/useInstallation'
+import { useAutoscalerDetection } from '@/hooks/useAutoscaler'
 import { useGpuOperatorStatus, useInstallGpuOperator } from '@/hooks/useGpuOperator'
 import { useHuggingFaceStatus, useHuggingFaceOAuth, useDeleteHuggingFaceSecret } from '@/hooks/useHuggingFace'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,18 +17,47 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { AutoscalerGuidance } from '@/components/autoscaler/AutoscalerGuidance'
 import { useToast } from '@/hooks/useToast'
-import { CheckCircle, XCircle, AlertCircle, Loader2, Server, Cpu, Key, Cog, Layers } from 'lucide-react'
+import {
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  AlertTriangle,
+  Loader2,
+  Server,
+  Cpu,
+  Key,
+  Cog,
+  Layers,
+  Download,
+  RefreshCw,
+  Copy,
+  Terminal,
+  Zap,
+  Trash2,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 
-type SettingsTab = 'general' | 'integrations'
+type SettingsTab = 'general' | 'runtimes' | 'integrations'
+type RuntimeId = 'dynamo' | 'kuberay' | 'kaito'
 
 export function SettingsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { isLoading: settingsLoading } = useSettings()
   const { data: runtimesStatus, isLoading: runtimesLoading } = useRuntimesStatus()
   const { data: clusterStatus, isLoading: clusterLoading } = useClusterStatus()
-  const { data: helmStatus } = useHelmStatus()
+  const { data: helmStatus, isLoading: helmLoading } = useHelmStatus()
+  const { data: autoscaler, isLoading: autoscalerLoading } = useAutoscalerDetection()
   const { data: gpuOperatorStatus, isLoading: gpuStatusLoading, refetch: refetchGpuStatus } = useGpuOperatorStatus()
   const { data: hfStatus, isLoading: hfStatusLoading, refetch: refetchHfStatus } = useHuggingFaceStatus()
   const { startOAuth } = useHuggingFaceOAuth()
@@ -32,7 +67,101 @@ export function SettingsPage() {
 
   const [isInstallingGpu, setIsInstallingGpu] = useState(false)
   const [isConnectingHf, setIsConnectingHf] = useState(false)
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  
+  // Tab state from URL params or default
+  const tabFromUrl = searchParams.get('tab') as SettingsTab | null
+  const [activeTab, setActiveTab] = useState<SettingsTab>(tabFromUrl || 'general')
+  
+  // Runtime installation state
+  const [selectedRuntime, setSelectedRuntime] = useState<RuntimeId | null>(null)
+  const [isInstalling, setIsInstalling] = useState(false)
+  const [isUninstalling, setIsUninstalling] = useState(false)
+  const [showUninstallDialog, setShowUninstallDialog] = useState(false)
+
+  const runtimes = runtimesStatus?.runtimes || []
+  const installedCount = runtimes.filter(r => r.installed).length
+  const helmAvailable = helmStatus?.available ?? false
+
+  // Set default runtime once data is loaded
+  useEffect(() => {
+    if (runtimesStatus?.runtimes && selectedRuntime === null) {
+      const installedRuntime = runtimes.find(r => r.installed)
+      if (installedRuntime) {
+        setSelectedRuntime(installedRuntime.id as RuntimeId)
+      } else {
+        setSelectedRuntime('dynamo')
+      }
+    }
+  }, [runtimesStatus, selectedRuntime, runtimes])
+
+  // Update URL when tab changes
+  useEffect(() => {
+    if (activeTab !== 'general') {
+      setSearchParams({ tab: activeTab })
+    } else {
+      setSearchParams({})
+    }
+  }, [activeTab, setSearchParams])
+
+  const effectiveRuntime = selectedRuntime || 'dynamo'
+
+  const {
+    data: installationStatus,
+    isLoading: installationLoading,
+    refetch: refetchInstallation,
+  } = useProviderInstallationStatus(effectiveRuntime)
+
+  const installProvider = useInstallProvider()
+  const uninstallProvider = useUninstallProvider()
+
+  const handleInstall = async (providerId: RuntimeId) => {
+    setIsInstalling(true)
+    try {
+      const result = await installProvider.mutateAsync(providerId)
+      if (result.success) {
+        toast({ title: 'Installation Complete', description: result.message })
+        refetchInstallation()
+      } else {
+        toast({ title: 'Installation Failed', description: result.message, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Installation Error', description: error instanceof Error ? error.message : 'Unknown error occurred', variant: 'destructive' })
+    } finally {
+      setIsInstalling(false)
+    }
+  }
+
+  const handleUninstall = async (providerId: RuntimeId) => {
+    setIsUninstalling(true)
+    setShowUninstallDialog(false)
+    try {
+      const result = await uninstallProvider.mutateAsync(providerId)
+      if (result.success) {
+        toast({ title: 'Uninstall Complete', description: result.message })
+        refetchInstallation()
+      } else {
+        toast({ title: 'Uninstall Failed', description: result.message, variant: 'destructive' })
+      }
+    } catch (error) {
+      toast({ title: 'Uninstall Error', description: error instanceof Error ? error.message : 'Unknown error occurred', variant: 'destructive' })
+    } finally {
+      setIsUninstalling(false)
+    }
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    toast({ title: 'Copied', description: 'Command copied to clipboard' })
+  }
+
+  const copyAllCommands = () => {
+    if (installationStatus?.helmCommands) {
+      navigator.clipboard.writeText(installationStatus.helmCommands.join('\n'))
+      toast({ title: 'Copied', description: 'All commands copied to clipboard' })
+    }
+  }
+
+  const isInstalled = installationStatus?.installed ?? false
 
   if (settingsLoading || clusterLoading || runtimesLoading) {
     return (
@@ -55,11 +184,9 @@ export function SettingsPage() {
     )
   }
 
-  const runtimes = runtimesStatus?.runtimes || []
-  const installedCount = runtimes.filter(r => r.installed).length
-
   const tabs = [
     { id: 'general' as const, label: 'General', icon: Server },
+    { id: 'runtimes' as const, label: 'Runtimes', icon: Layers },
     { id: 'integrations' as const, label: 'Integrations', icon: Key },
   ]
 
@@ -202,11 +329,9 @@ export function SettingsPage() {
                           {runtime.installed ? (runtime.healthy ? 'Healthy' : 'Unhealthy') : 'Not Installed'}
                         </Badge>
                         {!runtime.installed && (
-                          <Link to="/installation">
-                            <Button variant="outline" size="sm">
-                              Install
-                            </Button>
-                          </Link>
+                          <Button variant="outline" size="sm" onClick={() => setActiveTab('runtimes')}>
+                            Install
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -222,14 +347,401 @@ export function SettingsPage() {
                   </div>
                   <p>
                     Install at least one runtime to deploy models.{' '}
-                    <Link to="/installation" className="underline hover:no-underline">
-                      Go to Installation page
-                    </Link>
+                    <button 
+                      onClick={() => setActiveTab('runtimes')} 
+                      className="underline hover:no-underline"
+                    >
+                      Go to Runtimes tab
+                    </button>
                   </p>
                 </div>
               )}
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* Runtimes Tab */}
+      {activeTab === 'runtimes' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Prerequisites */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Server className="h-5 w-5" />
+                Prerequisites
+              </CardTitle>
+              <CardDescription>
+                Required components for runtime installation
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Kubernetes Cluster</span>
+                <div className="flex items-center gap-2">
+                  {clusterStatus?.connected ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      <span className="text-sm text-green-600">Connected</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-4 w-4 text-red-500" />
+                      <span className="text-sm text-red-600">Not Connected</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Helm CLI</span>
+                  {helmStatus?.version && (
+                    <span className="text-xs text-muted-foreground">({helmStatus.version})</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {helmLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : helmAvailable ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      <span className="text-sm text-green-600">Available</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-4 w-4 text-red-500" />
+                      <span className="text-sm text-red-600">Not Found</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {!helmAvailable && helmStatus?.error && (
+                <div className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+                  {helmStatus.error}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Cluster Autoscaling Status */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-5 w-5" />
+                  Cluster Autoscaling
+                </div>
+                {autoscalerLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : autoscaler?.detected ? (
+                  <Badge variant={autoscaler.healthy ? 'default' : 'destructive'}>
+                    {autoscaler.healthy ? 'Healthy' : 'Unhealthy'}
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">Not Detected</Badge>
+                )}
+              </CardTitle>
+              <CardDescription>
+                Automatically provision GPU nodes when deployments require more resources
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {autoscalerLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                      <span>Status</span>
+                      <div className="flex items-center gap-2">
+                        {autoscaler?.detected ? (
+                          <>
+                            {autoscaler.healthy ? (
+                              <CheckCircle className="h-4 w-4 text-green-500" />
+                            ) : (
+                              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                            )}
+                            <span className="font-medium">
+                              {autoscaler.type === 'aks-managed' ? 'AKS Managed' : 'Cluster Autoscaler'}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="h-4 w-4 text-gray-400" />
+                            <span className="text-muted-foreground">Not Detected</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {autoscaler?.detected && autoscaler.nodeGroupCount !== undefined && (
+                      <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                        <span>Node Pools</span>
+                        <span className="font-medium">{autoscaler.nodeGroupCount}</span>
+                      </div>
+                    )}
+
+                    {autoscaler?.message && (
+                      <div className={cn(
+                        'rounded-lg p-3 text-sm',
+                        autoscaler.healthy
+                          ? 'bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200'
+                          : autoscaler.detected
+                            ? 'bg-yellow-50 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200'
+                            : 'bg-muted text-muted-foreground'
+                      )}>
+                        {autoscaler.message}
+                      </div>
+                    )}
+                  </div>
+
+                  {autoscaler && !autoscaler.detected && (
+                    <AutoscalerGuidance autoscaler={autoscaler} />
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Runtimes Overview */}
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Available Runtimes</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {runtimes.map((runtime) => (
+                <Card
+                  key={runtime.id}
+                  className={cn(
+                    'transition-all cursor-pointer',
+                    effectiveRuntime === runtime.id
+                      ? 'ring-2 ring-primary'
+                      : 'hover:border-primary/50'
+                  )}
+                  onClick={() => setSelectedRuntime(runtime.id as RuntimeId)}
+                >
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center justify-between">
+                      <span>{runtime.name}</span>
+                      <Badge variant={runtime.installed ? (runtime.healthy ? 'default' : 'secondary') : 'destructive'}>
+                        {runtime.installed ? (runtime.healthy ? 'Healthy' : 'Unhealthy') : 'Not Installed'}
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      {runtime.id === 'kaito'
+                        ? 'Kubernetes AI Toolchain Operator for simplified model deployment'
+                        : runtime.id === 'dynamo'
+                          ? 'NVIDIA Dynamo for high-performance GPU inference'
+                          : 'KubeRay for distributed Ray-based model serving with vLLM'}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">CRD</span>
+                        {runtime.installed ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-gray-400" />
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Operator</span>
+                        {runtime.healthy ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : runtime.installed ? (
+                          <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-gray-400" />
+                        )}
+                      </div>
+                      {runtime.version && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Version</span>
+                          <span className="font-mono text-xs">{runtime.version}</span>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* Selected Runtime Installation Details */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Download className="h-5 w-5" />
+                  {installationStatus?.providerName || runtimes.find(r => r.id === effectiveRuntime)?.name || 'Runtime'} Installation
+                </div>
+                <Badge variant={isInstalled ? 'default' : 'destructive'}>
+                  {isInstalled ? 'Installed' : 'Not Installed'}
+                </Badge>
+              </CardTitle>
+              <CardDescription>
+                {installationStatus?.message || 'Checking installation status...'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {installationLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                      <span>CRD Installed</span>
+                      {installationStatus?.crdFound ? (
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-500" />
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                      <span>Operator Running</span>
+                      {installationStatus?.operatorRunning ? (
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-500" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    {!isInstalled && (
+                      <Button
+                        onClick={() => handleInstall(effectiveRuntime)}
+                        disabled={isInstalling || !helmAvailable || !clusterStatus?.connected}
+                        className="flex items-center gap-2"
+                      >
+                        {isInstalling ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Installing...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-4 w-4" />
+                            Install {runtimes.find(r => r.id === effectiveRuntime)?.name || 'Runtime'}
+                          </>
+                        )}
+                      </Button>
+                    )}
+
+                    {isInstalled && (
+                      <Button
+                        variant="destructive"
+                        onClick={() => setShowUninstallDialog(true)}
+                        disabled={isUninstalling || !helmAvailable || !clusterStatus?.connected}
+                        className="flex items-center gap-2"
+                      >
+                        {isUninstalling ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Uninstalling...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="h-4 w-4" />
+                            Uninstall
+                          </>
+                        )}
+                      </Button>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      onClick={() => refetchInstallation()}
+                      disabled={installationLoading}
+                    >
+                      <RefreshCw className={cn('h-4 w-4', installationLoading && 'animate-spin')} />
+                    </Button>
+                  </div>
+
+                  {!helmAvailable && (
+                    <div className="flex items-start gap-2 rounded-lg bg-yellow-50 p-4 text-sm text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200">
+                      <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">Helm CLI not available</p>
+                        <p className="mt-1">
+                          Automatic installation requires Helm. You can install the runtime manually using the commands below.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Manual Installation Commands */}
+          {installationStatus?.helmCommands && installationStatus.helmCommands.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-5 w-5" />
+                    Manual Installation Commands
+                  </div>
+                  <Button variant="outline" size="sm" onClick={copyAllCommands}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy All
+                  </Button>
+                </CardTitle>
+                <CardDescription>
+                  Run these commands to install the runtime manually
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {installationStatus.helmCommands.map((command, index) => (
+                  <div key={index} className="flex items-center gap-2 rounded-lg bg-muted p-3">
+                    <code className="flex-1 text-sm font-mono overflow-x-auto">{command}</code>
+                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(command)}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Installation Steps */}
+          {installationStatus?.installationSteps && installationStatus.installationSteps.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Installation Steps</CardTitle>
+                <CardDescription>
+                  Detailed steps for installing {installationStatus.providerName}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {installationStatus.installationSteps.map((step, index) => (
+                  <div key={index} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                        {index + 1}
+                      </span>
+                      <span className="font-medium">{step.title}</span>
+                    </div>
+                    <p className="ml-8 text-sm text-muted-foreground">{step.description}</p>
+                    {step.command && (
+                      <div className="ml-8 flex items-center gap-2">
+                        <code className="flex-1 rounded bg-muted px-3 py-2 text-sm font-mono">{step.command}</code>
+                        <Button variant="ghost" size="sm" onClick={() => copyToClipboard(step.command!)}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -541,6 +1053,27 @@ export function SettingsPage() {
           </Card>
         </div>
       )}
+
+      {/* Uninstall Confirmation Dialog */}
+      <Dialog open={showUninstallDialog} onOpenChange={setShowUninstallDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Uninstall Runtime</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to uninstall {runtimes.find(r => r.id === effectiveRuntime)?.name || 'this runtime'}?
+              This will remove the operator and all associated resources from your cluster.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUninstallDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => handleUninstall(effectiveRuntime)}>
+              Uninstall
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

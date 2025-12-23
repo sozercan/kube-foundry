@@ -56,6 +56,7 @@ class KubernetesService {
   private kc: k8s.KubeConfig;
   private customObjectsApi: k8s.CustomObjectsApi;
   private coreV1Api: k8s.CoreV1Api;
+  private apiExtensionsApi: k8s.ApiextensionsV1Api;
   private defaultNamespace: string;
 
   constructor() {
@@ -69,6 +70,7 @@ class KubernetesService {
 
     this.customObjectsApi = this.kc.makeApiClient(k8s.CustomObjectsApi);
     this.coreV1Api = this.kc.makeApiClient(k8s.CoreV1Api);
+    this.apiExtensionsApi = this.kc.makeApiClient(k8s.ApiextensionsV1Api);
     this.defaultNamespace = process.env.DEFAULT_NAMESPACE || 'kubefoundry-system';
   }
 
@@ -979,6 +981,63 @@ class KubernetesService {
       }
       logger.error({ error, podName, namespace }, 'Error getting pod logs');
       throw new Error(`Failed to get logs for pod '${podName}': ${error?.message || 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Delete a Custom Resource Definition (CRD) from the cluster
+   * @param crdName - Full CRD name (e.g., 'workspaces.kaito.sh')
+   * @returns true if deleted or not found, false on error
+   */
+  async deleteCRD(crdName: string): Promise<{ success: boolean; message: string }> {
+    try {
+      logger.info({ crdName }, 'Deleting CRD');
+      await withRetry(
+        () => this.apiExtensionsApi.deleteCustomResourceDefinition(crdName),
+        { operationName: 'deleteCRD', maxRetries: 2 }
+      );
+      logger.info({ crdName }, 'CRD deleted successfully');
+      return { success: true, message: `CRD ${crdName} deleted` };
+    } catch (error: any) {
+      const statusCode = error?.statusCode || error?.response?.statusCode;
+      if (statusCode === 404) {
+        logger.debug({ crdName }, 'CRD not found (already deleted)');
+        return { success: true, message: `CRD ${crdName} not found (already deleted)` };
+      }
+      logger.error({ error, crdName }, 'Error deleting CRD');
+      return { success: false, message: `Failed to delete CRD ${crdName}: ${error?.message || 'Unknown error'}` };
+    }
+  }
+
+  /**
+   * Delete a namespace from the cluster
+   * @param namespace - Namespace name to delete
+   * @returns true if deleted or not found, false on error
+   */
+  async deleteNamespace(namespace: string): Promise<{ success: boolean; message: string }> {
+    // Protect critical namespaces
+    const protectedNamespaces = ['default', 'kube-system', 'kube-public', 'kube-node-lease'];
+    if (protectedNamespaces.includes(namespace)) {
+      logger.warn({ namespace }, 'Attempted to delete protected namespace');
+      return { success: false, message: `Cannot delete protected namespace: ${namespace}` };
+    }
+
+    try {
+      logger.info({ namespace }, 'Deleting namespace');
+      await withRetry(
+        () => this.coreV1Api.deleteNamespace(namespace),
+        { operationName: 'deleteNamespace', maxRetries: 2 }
+      );
+      logger.info({ namespace }, 'Namespace deletion initiated');
+      return { success: true, message: `Namespace ${namespace} deletion initiated` };
+    } catch (error: any) {
+      const statusCode = error?.statusCode || error?.response?.statusCode;
+      if (statusCode === 404) {
+        logger.debug({ namespace }, 'Namespace not found (already deleted)');
+        return { success: true, message: `Namespace ${namespace} not found (already deleted)` };
+      }
+      logger.error({ error, namespace }, 'Error deleting namespace');
+      return { success: false, message: `Failed to delete namespace ${namespace}: ${error?.message || 'Unknown error'}` };
     }
   }
 }

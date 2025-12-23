@@ -1,5 +1,7 @@
 # KubeFoundry
 
+![KubeFoundry Logo](./frontend/public/logo.png)
+
 A web-based platform for deploying and managing large language models on Kubernetes with support for multiple inference providers.
 
 ## Features

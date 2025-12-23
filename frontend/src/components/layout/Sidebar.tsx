@@ -1,12 +1,11 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Box, Layers, Settings, Download, X } from 'lucide-react'
+import { Box, Layers, Settings, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
 const navigation = [
   { name: 'Models', href: '/', icon: Box },
   { name: 'Deployments', href: '/deployments', icon: Layers },
-  { name: 'Installation', href: '/installation', icon: Download },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -27,9 +26,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       {/* Header with logo */}
       <div className="flex h-16 items-center justify-between border-b px-4 md:px-6">
         <Link to="/" className="flex items-center gap-2" onClick={handleNavClick}>
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold shadow-soft-sm">
-            K
-          </div>
+          <img src="/logo.png" alt="KubeFoundry" className="h-8 w-8" />
           <span className="text-xl font-bold text-foreground">KubeFoundry</span>
         </Link>
         
