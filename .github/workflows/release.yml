@@ -49,35 +49,35 @@ jobs:
           VERSION=${{ steps.version.outputs.VERSION }} bun run compile:windows-x64
 
       - name: Upload Linux x64
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
         with:
           name: kubefoundry-linux-x64
           path: dist/kubefoundry-linux-x64
           if-no-files-found: error
 
       - name: Upload Linux arm64
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
         with:
           name: kubefoundry-linux-arm64
           path: dist/kubefoundry-linux-arm64
           if-no-files-found: error
 
       - name: Upload macOS x64
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
         with:
           name: kubefoundry-darwin-x64
           path: dist/kubefoundry-darwin-x64
           if-no-files-found: error
 
       - name: Upload macOS arm64
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
         with:
           name: kubefoundry-darwin-arm64
           path: dist/kubefoundry-darwin-arm64
           if-no-files-found: error
 
       - name: Upload Windows x64
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v4
         with:
           name: kubefoundry-windows-x64.exe
           path: dist/kubefoundry-windows-x64.exe
