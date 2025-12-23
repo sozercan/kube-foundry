@@ -62,6 +62,12 @@ jobs:
           mv dist/kubefoundry-darwin-arm64 release/kubefoundry-${VERSION}-darwin-arm64
           mv dist/kubefoundry-windows-x64.exe release/kubefoundry-${VERSION}-windows-amd64.exe
           
+          # Make binaries executable (except Windows)
+          chmod +x release/kubefoundry-${VERSION}-linux-amd64
+          chmod +x release/kubefoundry-${VERSION}-linux-arm64
+          chmod +x release/kubefoundry-${VERSION}-darwin-amd64
+          chmod +x release/kubefoundry-${VERSION}-darwin-arm64
+          
           # Generate checksums
           cd release
           sha256sum * > checksums.txt

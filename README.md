@@ -49,6 +49,11 @@ Open the web UI at **http://localhost:3001**
 
 > **Requires:** `kubectl` configured with cluster access, `helm` CLI installed
 
+> **macOS users:** If you see a quarantine warning, remove it with:
+> ```bash
+> xattr -dr com.apple.quarantine kubefoundry
+> ```
+
 ### Option B: Deploy to Kubernetes
 
 ```bash

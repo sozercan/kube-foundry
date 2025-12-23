@@ -16,8 +16,12 @@ bun install
 # Start development servers (frontend + backend)
 bun run dev
 
-# Frontend: http://localhost:5173
-# Backend: http://localhost:3001
+# Development mode:
+#   Frontend: http://localhost:5173 (Vite dev server, proxies API to backend)
+#   Backend:  http://localhost:3001
+#
+# Production mode (compiled binary):
+#   Single server: http://localhost:3001 (frontend embedded in backend)
 ```
 
 ## Building a Single Binary
@@ -255,18 +259,31 @@ curl http://localhost:3001/api/models
 # List deployments
 curl http://localhost:3001/api/deployments
 
-# Create deployment
+# Create deployment (Dynamo/KubeRay)
 curl -X POST http://localhost:3001/api/deployments \
   -H "Content-Type: application/json" \
   -d '{
     "name": "test-deployment",
     "namespace": "kubefoundry-system",
+    "provider": "dynamo",
     "modelId": "Qwen/Qwen3-0.6B",
     "engine": "vllm",
     "mode": "aggregated",
     "replicas": 1,
     "hfTokenSecret": "hf-token-secret",
     "enforceEager": true
+  }'
+
+# Create deployment (KAITO with premade model)
+curl -X POST http://localhost:3001/api/deployments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "kaito-deployment",
+    "namespace": "kubefoundry-system",
+    "provider": "kaito",
+    "modelSource": "premade",
+    "premadeModel": "llama-3.2-1b-instruct",
+    "computeType": "cpu"
   }'
 ```
 
@@ -275,10 +292,13 @@ curl -X POST http://localhost:3001/api/deployments \
 After deployment is running:
 
 ```bash
-# Port-forward to the frontend service
-kubectl port-forward svc/<deployment>-frontend 8000:8000 -n kubefoundry
+# Port-forward to the service (check deployment details for exact service name)
+kubectl port-forward svc/<deployment>-frontend 8000:8000 -n kubefoundry-system
 
-# Test the model
+# For KAITO deployments, port-forward directly to the pod
+kubectl port-forward pod/<deployment-name> 8080:8080 -n kubefoundry-system
+
+# Test the model (OpenAI-compatible API)
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -295,8 +315,11 @@ curl http://localhost:8000/v1/chat/completions \
 - Ensure proper RBAC permissions
 
 ### Provider not detected as installed
-- Check CRD exists: `kubectl get crd dynamographdeployments.nvidia.com`
-- Check operator deployment: `kubectl get deployments -n kubefoundry`
+- Check CRD exists:
+  - Dynamo: `kubectl get crd dynamographdeployments.nvidia.com`
+  - KubeRay: `kubectl get crd rayservices.ray.io`
+  - KAITO: `kubectl get crd workspaces.kaito.sh`
+- Check operator deployment: `kubectl get deployments -n <provider-namespace>`
 
 ### Frontend can't reach backend
 - Check CORS_ORIGIN matches frontend URL

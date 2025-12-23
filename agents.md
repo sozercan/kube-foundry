@@ -57,3 +57,6 @@ Read these files **only when relevant** to your task:
 - Build-time constants: `backend/src/build-info.ts`
 - Compile script: `backend/scripts/compile.ts`
 - Asset embedding: `backend/scripts/embed-assets.ts`
+- AIKit service (KAITO): `backend/src/services/aikit.ts`
+- BuildKit service: `backend/src/services/buildkit.ts`
+- Registry service: `backend/src/services/registry.ts`

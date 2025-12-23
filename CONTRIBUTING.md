@@ -20,8 +20,12 @@ bun install
 # Start development servers (frontend + backend)
 bun run dev
 
-# Frontend: http://localhost:5173
-# Backend: http://localhost:3001
+# Development mode:
+#   Frontend: http://localhost:5173 (Vite dev server, proxies API to backend)
+#   Backend:  http://localhost:3001
+#
+# Production mode (compiled binary):
+#   Single server: http://localhost:3001 (frontend embedded in backend)
 ```
 
 ### Build Commands
@@ -69,11 +73,15 @@ kubefoundry/
 │   │   │   ├── types.ts      # Provider interface
 │   │   │   ├── index.ts      # Provider registry
 │   │   │   ├── dynamo/       # NVIDIA Dynamo provider
-│   │   │   └── kuberay/      # KubeRay provider
+│   │   │   ├── kuberay/      # KubeRay provider
+│   │   │   └── kaito/        # KAITO provider (CPU/GPU via llama.cpp)
 │   │   ├── services/    # Core services
 │   │   │   ├── kubernetes.ts # K8s client
 │   │   │   ├── config.ts     # ConfigMap persistence
-│   │   │   └── helm.ts       # Helm CLI integration
+│   │   │   ├── helm.ts       # Helm CLI integration
+│   │   │   ├── aikit.ts      # AIKit image building
+│   │   │   ├── buildkit.ts   # BuildKit builder management
+│   │   │   └── registry.ts   # In-cluster registry management
 │   │   └── data/        # Static model catalog
 │   └── ...
 ├── shared/            # Shared TypeScript types
@@ -113,10 +121,11 @@ metadata:
 data:
   config.json: |
     {
-      "activeProviderId": "dynamo",
-      "providerConfigs": {}
+      "defaultNamespace": "kubefoundry-system"
     }
 ```
+
+**Note:** Each deployment specifies its own runtime (`provider` field). There is no global "active provider" - users select the runtime when creating a deployment.
 
 ## Environment Variables
 
@@ -132,6 +141,7 @@ VITE_DEFAULT_HF_SECRET=hf-token-secret
 PORT=3001
 DEFAULT_NAMESPACE=kubefoundry-system
 CORS_ORIGIN=http://localhost:5173
+AUTH_ENABLED=false
 ```
 
 ## Adding a New Provider

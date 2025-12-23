@@ -61,6 +61,11 @@ Get current settings and available providers.
       "id": "kuberay",
       "name": "KubeRay",
       "description": "Ray-based distributed inference"
+    },
+    {
+      "id": "kaito",
+      "name": "KAITO",
+      "description": "CPU/GPU inference with pre-built GGUF models via llama.cpp"
     }
   ],
   "auth": {
@@ -463,9 +468,9 @@ Create a new deployment.
 **Required Fields:**
 - `name` - Kubernetes resource name
 - `namespace` - Target namespace
-- `provider` - Runtime provider (`dynamo` or `kuberay`)
+- `provider` - Runtime provider (`dynamo`, `kuberay`, or `kaito`)
 - `modelId` - HuggingFace model ID
-- `engine` - Inference engine (`vllm`, `sglang`, or `trtllm` for Dynamo; `vllm` for KubeRay)
+- `engine` - Inference engine (`vllm`, `sglang`, or `trtllm` for Dynamo; `vllm` for KubeRay; not used for KAITO)
 - `hfTokenSecret` - Name of the Kubernetes secret containing HuggingFace token
 
 **Response:**
@@ -529,13 +534,20 @@ Get installation and health status of all runtimes.
       "installed": false,
       "healthy": false,
       "message": "CRD not found"
+    },
+    {
+      "id": "kaito",
+      "name": "KAITO",
+      "installed": true,
+      "healthy": true,
+      "message": "KAITO installed"
     }
   ]
 }
 ```
 
 **Fields:**
-- `id` - Runtime identifier (`dynamo` or `kuberay`)
+- `id` - Runtime identifier (`dynamo`, `kuberay`, or `kaito`)
 - `name` - Display name
 - `installed` - Whether the CRD is installed
 - `healthy` - Whether the operator pods are running
@@ -666,6 +678,129 @@ Delete HuggingFace token secrets from all namespaces.
     { "namespace": "kuberay-system", "success": true },
     { "namespace": "default", "success": true }
   ]
+}
+```
+
+## AIKit (KAITO Image Building)
+
+Endpoints for building and managing KAITO/AIKit images for GGUF model deployment.
+
+### GET /aikit/models
+List available pre-made AIKit models.
+
+**Response:**
+```json
+{
+  "models": [
+    {
+      "id": "llama-3.2-1b-instruct",
+      "name": "Llama 3.2 1B Instruct",
+      "image": "ghcr.io/kaito-project/aikit/llama-3.2-1b-instruct:latest",
+      "size": "1B",
+      "quantization": "Q4_K_M"
+    }
+  ],
+  "total": 15
+}
+```
+
+### GET /aikit/models/:id
+Get details for a specific pre-made model.
+
+**Response:**
+```json
+{
+  "id": "llama-3.2-1b-instruct",
+  "name": "Llama 3.2 1B Instruct",
+  "image": "ghcr.io/kaito-project/aikit/llama-3.2-1b-instruct:latest",
+  "size": "1B",
+  "quantization": "Q4_K_M"
+}
+```
+
+### POST /aikit/build
+Build an AIKit image from a HuggingFace GGUF model or get pre-made image reference.
+
+**Request Body (Pre-made):**
+```json
+{
+  "modelSource": "premade",
+  "premadeModel": "llama-3.2-1b-instruct"
+}
+```
+
+**Request Body (HuggingFace GGUF):**
+```json
+{
+  "modelSource": "huggingface",
+  "modelId": "TheBloke/Llama-2-7B-GGUF",
+  "ggufFile": "llama-2-7b.Q4_K_M.gguf",
+  "imageName": "my-model",
+  "imageTag": "v1"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "imageRef": "registry.kubefoundry-system.svc.cluster.local:5000/my-model:v1",
+  "buildTime": 120,
+  "wasPremade": false,
+  "message": "AIKit image built successfully"
+}
+```
+
+### POST /aikit/build/preview
+Preview what image would be built (dry-run, no actual build).
+
+**Response:**
+```json
+{
+  "imageRef": "registry.kubefoundry-system.svc.cluster.local:5000/my-model:v1",
+  "wasPremade": false,
+  "requiresBuild": true,
+  "registryUrl": "registry.kubefoundry-system.svc.cluster.local:5000"
+}
+```
+
+### GET /aikit/infrastructure/status
+Check build infrastructure (registry and BuildKit) status.
+
+**Response:**
+```json
+{
+  "ready": true,
+  "registry": {
+    "ready": true,
+    "url": "registry.kubefoundry-system.svc.cluster.local:5000",
+    "message": "Registry is running"
+  },
+  "builder": {
+    "exists": true,
+    "ready": true,
+    "running": true,
+    "message": "BuildKit builder is ready"
+  }
+}
+```
+
+### POST /aikit/infrastructure/setup
+Set up build infrastructure (deploy registry and BuildKit if needed).
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Build infrastructure is ready",
+  "registry": {
+    "url": "registry.kubefoundry-system.svc.cluster.local:5000",
+    "ready": true
+  },
+  "builder": {
+    "name": "buildkit-kubefoundry",
+    "ready": true
+  }
 }
 ```
 
