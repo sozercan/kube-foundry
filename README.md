@@ -13,9 +13,12 @@ A web-based platform for deploying and managing large language models on Kuberne
 - ⚡ **Autoscaler Integration**: Detects cluster autoscaling and provides capacity guidance
 - 🚀 **One-Click Deploy**: Configure and deploy models without writing YAML
 - 📈 **Live Dashboard**: Monitor deployments with auto-refresh and status tracking
+- � **Real-Time Logs**: Stream container logs directly from the UI
+- 📊 **Deployment Metrics**: View Prometheus metrics for running deployments (in-cluster)
 - 🔌 **Multi-Provider Support**: Extensible architecture supporting multiple inference runtimes
 - 🔧 **Multiple Engines**: vLLM, SGLang, and TensorRT-LLM (via NVIDIA Dynamo)
 - 📥 **Installation Wizard**: Install providers via Helm directly from the UI
+- 🛠️ **Complete Uninstall**: Clean uninstallation with optional CRD removal
 - 🎨 **Dark Theme**: Modern dark UI with provider-specific accents
 
 ## Supported Providers
@@ -24,7 +27,7 @@ A web-based platform for deploying and managing large language models on Kuberne
 | ----------------- | ----------- | ------------------------------------------------------------------ |
 | **NVIDIA Dynamo** | ✅ Available | GPU-accelerated inference with aggregated or disaggregated serving |
 | **KubeRay**       | ✅ Available | Ray-based distributed inference                                    |
-| **KAITO**         | ✅ Available | CPU-capable inference with pre-built GGUF models via llama.cpp    |
+| **KAITO**         | ✅ Available | Flexible inference with vLLM (GPU) and llama.cpp (CPU/GPU) support |
 
 ## Prerequisites
 
@@ -88,7 +91,10 @@ Go to **Settings** → **HuggingFace** and click **"Sign in with Hugging Face"**
 5. **Select Runtime**: Choose between NVIDIA Dynamo, KubeRay, or KAITO based on installed runtimes
 6. **Configure** deployment options:
    - **Dynamo/KubeRay**: Select engine (vLLM, SGLang, TRT-LLM), replicas, GPU configuration
-   - **KAITO**: Select pre-made GGUF model or build from HuggingFace, choose CPU or GPU compute
+   - **KAITO**: Choose from three modes:
+     - **Pre-made GGUF**: Ready-to-deploy quantized models for CPU/GPU
+     - **HuggingFace GGUF**: Run any GGUF model from HuggingFace directly
+     - **vLLM**: GPU inference using the vLLM engine
 7. Click **Create Deployment** to launch
 
 > **Note:** Each deployment can use a different runtime. The deployment list shows which runtime each deployment is using.
@@ -96,9 +102,11 @@ Go to **Settings** → **HuggingFace** and click **"Sign in with Hugging Face"**
 ### 4. Monitor Your Deployment
 
 Head to the **Deployments** page to:
-- View real-time status of all deployments
-- See pod readiness and health checks
-- Access logs and deployment details
+- View real-time status of all deployments across all runtimes
+- See pod readiness and health checks with node information
+- Stream container logs directly from the UI
+- View Prometheus metrics (when running in-cluster)
+- Get intelligent guidance when pods are pending (GPU/resource constraints)
 - Scale or delete deployments
 
 ### 5. Access Your Model

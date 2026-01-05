@@ -8,6 +8,13 @@ import logger from '../../lib/logger';
 // Hardcoded KAITO version
 const KAITO_VERSION = '0.6.0';
 
+// KAITO base image for vLLM mode
+const KAITO_BASE_IMAGE = 'mcr.microsoft.com/aks/kaito/kaito-base:0.1.1';
+
+// Port constants
+const LLAMACPP_PORT = 5000;
+const VLLM_PORT = 8000;
+
 /**
  * KAITO Provider
  * Implements the Provider interface for KAITO (Kubernetes AI Toolchain Operator)
@@ -18,7 +25,7 @@ const KAITO_VERSION = '0.6.0';
 export class KaitoProvider implements Provider {
   id = 'kaito';
   name = 'KAITO';
-  description = 'KAITO (Kubernetes AI Toolchain Operator) enables CPU and GPU inference using GGUF quantized models. Deploy models without GPU nodes using AIKit.';
+  description = 'Flexible inference with GGUF (llama.cpp) and vLLM support. Deploy models on CPU or GPU nodes.';
   defaultNamespace = 'kaito-workspace';
 
   // CRD Constants
@@ -43,6 +50,11 @@ export class KaitoProvider implements Provider {
       { name: config.name, modelSource: kaitoConfig.modelSource, computeType: kaitoConfig.computeType, ggufRunMode: kaitoConfig.ggufRunMode },
       'Generating KAITO Workspace manifest'
     );
+
+    // Route to vLLM manifest generation if modelSource is 'vllm'
+    if (kaitoConfig.modelSource === 'vllm') {
+      return this.generateVllmManifest(kaitoConfig);
+    }
 
     // Determine image and args based on run mode
     let containerImage: string;
@@ -113,11 +125,144 @@ export class KaitoProvider implements Provider {
                 args: containerArgs,
                 ports: [
                   {
-                    containerPort: 5000,
+                    containerPort: LLAMACPP_PORT,
                     protocol: 'TCP',
                   },
                 ],
                 ...(Object.keys(resources).length > 0 && { resources }),
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    return manifest;
+  }
+
+  /**
+   * Generate vLLM manifest for HuggingFace models using kaito-base image
+   * Based on: https://github.com/kaito-project/kaito/blob/main/examples/custom-model-integration/custom-model-deployment.yaml
+   */
+  private generateVllmManifest(config: KaitoDeploymentConfig): Record<string, unknown> {
+    const gpuCount = config.resources?.gpu || 1;
+    
+    logger.debug(
+      { name: config.name, modelId: config.modelId, gpuCount, maxModelLen: config.maxModelLen },
+      'Generating vLLM KAITO Workspace manifest'
+    );
+
+    // Build vLLM command args
+    const vllmArgs: string[] = [
+      '-m',
+      'vllm.entrypoints.openai.api_server',
+      '--model',
+      config.modelId!,
+      '--tensor-parallel-size',
+      gpuCount.toString(),
+      '--trust-remote-code',
+    ];
+
+    // Add optional max-model-len if specified
+    if (config.maxModelLen) {
+      vllmArgs.push('--max-model-len', config.maxModelLen.toString());
+    }
+
+    // Build environment variables
+    const env: Array<Record<string, unknown>> = [];
+    
+    // Add HF_TOKEN if gated model (hfTokenSecret is set)
+    if (config.hfTokenSecret) {
+      env.push({
+        name: 'HF_TOKEN',
+        valueFrom: {
+          secretKeyRef: {
+            name: config.hfTokenSecret,
+            key: 'HF_TOKEN',
+          },
+        },
+      });
+    }
+
+    // Build container spec
+    const container: Record<string, unknown> = {
+      name: 'model',
+      image: KAITO_BASE_IMAGE,
+      command: ['python'],
+      args: vllmArgs,
+      ports: [
+        {
+          containerPort: VLLM_PORT,
+          protocol: 'TCP',
+        },
+      ],
+      livenessProbe: {
+        httpGet: {
+          path: '/health',
+          port: VLLM_PORT,
+          scheme: 'HTTP',
+        },
+        initialDelaySeconds: 600,
+        periodSeconds: 10,
+        failureThreshold: 3,
+      },
+      readinessProbe: {
+        httpGet: {
+          path: '/health',
+          port: VLLM_PORT,
+          scheme: 'HTTP',
+        },
+        initialDelaySeconds: 30,
+        periodSeconds: 10,
+        failureThreshold: 3,
+      },
+      resources: {
+        requests: {
+          'nvidia.com/gpu': gpuCount,
+        },
+        limits: {
+          'nvidia.com/gpu': gpuCount,
+        },
+      },
+      volumeMounts: [
+        {
+          name: 'dshm',
+          mountPath: '/dev/shm',
+        },
+      ],
+    };
+
+    // Add env if we have environment variables
+    if (env.length > 0) {
+      container.env = env;
+    }
+
+    // Build the workspace manifest
+    const manifest: Record<string, unknown> = {
+      apiVersion: `${KaitoProvider.API_GROUP}/${KaitoProvider.API_VERSION}`,
+      kind: KaitoProvider.CRD_KIND,
+      metadata: {
+        name: config.name,
+        namespace: config.namespace,
+        labels: {
+          'app.kubernetes.io/name': 'kubefoundry',
+          'app.kubernetes.io/instance': config.name,
+          'app.kubernetes.io/managed-by': 'kubefoundry',
+          'kubefoundry.io/compute-type': 'gpu',  // vLLM always requires GPU
+          'kubefoundry.io/model-source': 'vllm',
+        },
+      },
+      resource: this.buildResourceSpec(config),
+      inference: {
+        template: {
+          spec: {
+            containers: [container],
+            volumes: [
+              {
+                name: 'dshm',
+                emptyDir: {
+                  medium: 'Memory',
+                },
               },
             ],
           },
@@ -205,6 +350,7 @@ export class KaitoProvider implements Provider {
           spec?: {
             containers?: Array<{
               image?: string;
+              command?: string[];
               args?: string[];
             }>;
           };
@@ -237,10 +383,18 @@ export class KaitoProvider implements Provider {
     const imageRef = container?.image || '';
     const containerArgs = container?.args || [];
 
-    // Extract model ID from image reference, args, or labels
+    // Extract model ID and determine engine based on model source
     let modelId = imageRef;
+    let engine: 'llamacpp' | 'vllm' = 'llamacpp';  // Default to llamacpp
     
-    if (runMode === 'direct' || imageRef === GGUF_RUNNER_IMAGE) {
+    if (modelSource === 'vllm' || imageRef === KAITO_BASE_IMAGE) {
+      // vLLM mode - extract model from --model arg
+      engine = 'vllm';
+      const modelArgIdx = containerArgs.findIndex(arg => arg === '--model');
+      if (modelArgIdx >= 0 && containerArgs[modelArgIdx + 1]) {
+        modelId = containerArgs[modelArgIdx + 1];
+      }
+    } else if (runMode === 'direct' || imageRef === GGUF_RUNNER_IMAGE) {
       // For direct mode, extract model name from huggingface:// URI in container args
       // Format: huggingface://org/repo/filename.gguf
       const hfArg = containerArgs.find(arg => arg.startsWith('huggingface://'));
@@ -274,12 +428,15 @@ export class KaitoProvider implements Provider {
     // readyReplicas should be min of workerNodes and desired, or 0 if not running
     const readyReplicas = phase === 'Running' ? Math.min(workerNodes.length || desiredReplicas, desiredReplicas) : 0;
 
+    // Determine the service port based on engine
+    const servicePort = engine === 'vllm' ? VLLM_PORT : LLAMACPP_PORT;
+
     return {
       name: metadata.name || 'unknown',
       namespace: metadata.namespace || 'default',
       modelId,
       servedModelName: metadata.name || 'unknown',
-      engine: 'llamacpp', // KAITO uses llama.cpp via AIKit
+      engine,  // 'vllm' or 'llamacpp' based on model source
       mode: 'aggregated',
       phase,
       provider: this.id,
@@ -297,7 +454,7 @@ export class KaitoProvider implements Provider {
       })),
       pods: [], // Pods are managed by KAITO
       createdAt: metadata.creationTimestamp || new Date().toISOString(),
-      frontendService: `${metadata.name}`, // KAITO creates a service with the workspace name
+      frontendService: `${metadata.name}:${servicePort}`, // Include port for vLLM vs llama.cpp
     };
   }
 
@@ -488,17 +645,34 @@ export class KaitoProvider implements Provider {
   }
 
   getMetricsConfig(): MetricsEndpointConfig | null {
-    // KAITO/AIKit uses llama.cpp which exposes metrics on the same port
+    // KAITO supports both llama.cpp (port 5000) and vLLM (port 8000)
+    // The actual port is determined by the deployment's model source label
+    // For now, return llama.cpp config as default - caller should check deployment labels
     return {
       endpointPath: '/metrics',
-      port: 5000,
+      port: LLAMACPP_PORT,
+      serviceNamePattern: '{name}',
+    };
+  }
+
+  /**
+   * Get metrics config for a specific model source
+   * @param modelSource - 'vllm', 'huggingface', or 'premade'
+   */
+  getMetricsConfigForModelSource(modelSource: string): MetricsEndpointConfig | null {
+    const port = modelSource === 'vllm' ? VLLM_PORT : LLAMACPP_PORT;
+    return {
+      endpointPath: '/metrics',
+      port,
       serviceNamePattern: '{name}',
     };
   }
 
   getKeyMetrics(): MetricDefinition[] {
-    // llama.cpp/AIKit metrics
+    // Return metrics for both llama.cpp and vLLM
+    // The frontend/metrics service will filter based on what's actually available
     return [
+      // llama.cpp/AIKit metrics
       {
         name: 'llamacpp_requests_processing',
         displayName: 'Processing Requests',
@@ -537,6 +711,39 @@ export class KaitoProvider implements Provider {
         description: 'Total prompt tokens processed',
         unit: 'tokens/s',
         type: 'counter',
+        category: 'throughput',
+      },
+      // vLLM metrics
+      {
+        name: 'vllm:num_requests_running',
+        displayName: 'Running Requests',
+        description: 'Number of requests currently running',
+        unit: 'requests',
+        type: 'gauge',
+        category: 'queue',
+      },
+      {
+        name: 'vllm:num_requests_waiting',
+        displayName: 'Waiting Requests',
+        description: 'Number of requests waiting in queue',
+        unit: 'requests',
+        type: 'gauge',
+        category: 'queue',
+      },
+      {
+        name: 'vllm:gpu_cache_usage_perc',
+        displayName: 'GPU Cache Usage',
+        description: 'GPU KV cache usage percentage',
+        unit: '%',
+        type: 'gauge',
+        category: 'cache',
+      },
+      {
+        name: 'vllm:avg_generation_throughput_toks_per_s',
+        displayName: 'Generation Throughput',
+        description: 'Average tokens generated per second',
+        unit: 'tokens/s',
+        type: 'gauge',
         category: 'throughput',
       },
     ];

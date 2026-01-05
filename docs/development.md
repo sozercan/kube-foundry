@@ -279,11 +279,38 @@ curl -X POST http://localhost:3001/api/deployments \
   -H "Content-Type: application/json" \
   -d '{
     "name": "kaito-deployment",
-    "namespace": "kubefoundry-system",
+    "namespace": "kaito-workspace",
     "provider": "kaito",
     "modelSource": "premade",
-    "premadeModel": "llama-3.2-1b-instruct",
+    "premadeModel": "llama3.2-1b",
     "computeType": "cpu"
+  }'
+
+# Create deployment (KAITO with HuggingFace GGUF - direct mode)
+curl -X POST http://localhost:3001/api/deployments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "gemma-deployment",
+    "namespace": "kaito-workspace",
+    "provider": "kaito",
+    "modelSource": "huggingface",
+    "modelId": "bartowski/gemma-3-1b-it-GGUF",
+    "ggufFile": "gemma-3-1b-it-Q8_0.gguf",
+    "ggufRunMode": "direct",
+    "computeType": "cpu"
+  }'
+
+# Create deployment (KAITO with vLLM for GPU inference)
+curl -X POST http://localhost:3001/api/deployments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "vllm-deployment",
+    "namespace": "kaito-workspace",
+    "provider": "kaito",
+    "modelSource": "vllm",
+    "modelId": "Qwen/Qwen3-0.6B",
+    "hfTokenSecret": "hf-token-secret",
+    "resources": { "gpu": 1 }
   }'
 ```
 
@@ -293,16 +320,29 @@ After deployment is running:
 
 ```bash
 # Port-forward to the service (check deployment details for exact service name)
+# Dynamo/KubeRay deployments expose port 8000
 kubectl port-forward svc/<deployment>-frontend 8000:8000 -n kubefoundry-system
 
-# For KAITO deployments, port-forward directly to the pod
-kubectl port-forward pod/<deployment-name> 8080:8080 -n kubefoundry-system
+# KAITO deployments with vLLM expose port 8000
+kubectl port-forward svc/<deployment-name> 8000:8000 -n kaito-workspace
+
+# KAITO deployments with llama.cpp (premade/GGUF) expose port 5000
+kubectl port-forward svc/<deployment-name> 5000:5000 -n kaito-workspace
 
 # Test the model (OpenAI-compatible API)
+# For vLLM (port 8000):
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "Qwen/Qwen3-0.6B",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# For llama.cpp (port 5000):
+curl http://localhost:5000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama3.2-1b",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -319,7 +359,21 @@ curl http://localhost:8000/v1/chat/completions \
   - Dynamo: `kubectl get crd dynamographdeployments.nvidia.com`
   - KubeRay: `kubectl get crd rayservices.ray.io`
   - KAITO: `kubectl get crd workspaces.kaito.sh`
-- Check operator deployment: `kubectl get deployments -n <provider-namespace>`
+- Check operator deployment:
+  - Dynamo: `kubectl get deployments -n dynamo-system`
+  - KubeRay: `kubectl get deployments -n ray-system`
+  - KAITO: `kubectl get deployments -n kaito-workspace`
+
+### KAITO deployment stuck in Pending
+- Check KAITO workspace status: `kubectl describe workspace <name> -n kaito-workspace`
+- Verify node labels match labelSelector (default: `kubernetes.io/os: linux`)
+- For vLLM mode, ensure GPU nodes are available
+- Check events: `kubectl get events -n kaito-workspace --sort-by=.lastTimestamp`
+
+### Metrics not available
+- Metrics require KubeFoundry to run in-cluster
+- Check deployment pods are running: `kubectl get pods -n <namespace>`
+- Verify metrics endpoint is exposed (port 8000 for vLLM, port 5000 for llama.cpp)
 
 ### Frontend can't reach backend
 - Check CORS_ORIGIN matches frontend URL

@@ -13,7 +13,7 @@ export const kaitoDeploymentConfigSchema = z.object({
   provider: z.literal('kaito'),
 
   // Model source
-  modelSource: z.enum(['premade', 'huggingface']),
+  modelSource: z.enum(['premade', 'huggingface', 'vllm']),
 
   // For premade models (from AIKit curated list)
   premadeModel: z.string().optional(),
@@ -49,6 +49,12 @@ export const kaitoDeploymentConfigSchema = z.object({
   // Image reference (set by build service, optional for premade)
   imageRef: z.string().optional(),
 
+  // vLLM-specific options
+  maxModelLen: z.number().int().min(1).optional(),  // --max-model-len for vLLM
+
+  // HuggingFace token secret for gated models
+  hfTokenSecret: z.string().optional(),
+
 }).refine(
   data => {
     if (data.modelSource === 'premade') {
@@ -58,9 +64,13 @@ export const kaitoDeploymentConfigSchema = z.object({
       // Both direct and build modes require modelId and ggufFile
       return !!data.modelId && !!data.ggufFile;
     }
+    if (data.modelSource === 'vllm') {
+      // vLLM mode just needs modelId (HuggingFace model ID)
+      return !!data.modelId;
+    }
     return false;
   },
-  { message: 'Invalid model configuration: premade requires premadeModel, huggingface requires modelId and ggufFile' }
+  { message: 'Invalid model configuration: premade requires premadeModel, huggingface requires modelId and ggufFile, vllm requires modelId' }
 );
 
 export type KaitoDeploymentConfig = z.infer<typeof kaitoDeploymentConfigSchema>;

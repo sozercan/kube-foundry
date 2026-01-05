@@ -60,3 +60,8 @@ Read these files **only when relevant** to your task:
 - AIKit service (KAITO): `backend/src/services/aikit.ts`
 - BuildKit service: `backend/src/services/buildkit.ts`
 - Registry service: `backend/src/services/registry.ts`
+- Metrics service: `backend/src/services/metrics.ts`
+- Autoscaler service: `backend/src/services/autoscaler.ts`
+- GPU validation: `backend/src/services/gpuValidation.ts`
+- Prometheus parser: `backend/src/lib/prometheus-parser.ts`
+- K8s error handling: `backend/src/lib/k8s-errors.ts`

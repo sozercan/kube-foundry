@@ -95,11 +95,18 @@ interface Provider {
 
 ### KAITO Provider
 
-The KAITO provider enables CPU-capable inference using quantized GGUF models via llama.cpp. It supports:
+The KAITO provider enables flexible inference with multiple backends:
 
-- **Pre-made Models**: Ready-to-deploy GGUF models from `ghcr.io/kaito-project/aikit/*`
-- **HuggingFace GGUF**: Build custom images from any HuggingFace GGUF model
-- **CPU/GPU Flexibility**: Run inference on CPU nodes (no GPU required) or GPU nodes
+- **vLLM Mode**: GPU inference using vLLM engine with full HuggingFace model support
+- **Pre-made GGUF**: Ready-to-deploy quantized models from `ghcr.io/kaito-project/aikit/*`
+- **HuggingFace GGUF**: Run any GGUF model from HuggingFace directly (no build required)
+- **CPU/GPU Flexibility**: llama.cpp models can run on CPU nodes (no GPU required) or GPU nodes
+
+| Mode | Engine | Compute | Use Case |
+|------|--------|---------|----------|
+| vLLM | vLLM | GPU | High-performance GPU inference |
+| Pre-made GGUF | llama.cpp | CPU/GPU | Ready-to-deploy quantized models |
+| HuggingFace GGUF | llama.cpp | CPU/GPU | Run any HuggingFace GGUF model |
 
 #### Build Infrastructure
 
@@ -223,13 +230,29 @@ App
 
 ### KubernetesService
 Handles all Kubernetes API interactions:
-- List/create/delete custom resources
-- Get pod status
+- List/create/delete custom resources for all providers
+- Get pod status and logs
 - Check cluster connectivity
-- Namespace management
+- Namespace and node management
 - Check GPU availability on nodes (`nvidia.com/gpu` resources)
 - Detect GPU memory from node labels (`nvidia.com/gpu.memory` or `nvidia.com/gpu.product`)
+- Get detailed GPU capacity with per-node and per-pool breakdown
 - Check GPU Operator installation status (CRDs, pods)
+- Get pod failure reasons from Kubernetes Events
+- Delete CRDs and namespaces for complete provider uninstallation
+
+### MetricsService
+Fetches and processes Prometheus metrics from inference deployments:
+- Connects to deployment metrics endpoints (when running in-cluster)
+- Parses Prometheus text format
+- Supports vLLM and llama.cpp metric formats
+- Handles provider-specific metric configurations
+
+### AutoscalerService
+Detects and monitors cluster autoscaler:
+- Detects autoscaler type (AKS managed, self-managed Cluster Autoscaler)
+- Parses autoscaler status from ConfigMap
+- Reports node group health and scaling status
 
 ### HuggingFaceService
 Handles HuggingFace Hub API interactions:
@@ -247,9 +270,10 @@ Manages application configuration:
 
 ### HelmService
 Handles Helm CLI operations:
-- Check Helm availability
+- Check Helm availability and version
 - Add/update repositories
-- Install/upgrade/uninstall charts
+- Install/upgrade/uninstall charts with real-time output
+- Detect stuck/pending releases and handle cleanup
 - Install NVIDIA GPU Operator (`gpu-operator` namespace)
 
 ### AuthService
@@ -258,3 +282,21 @@ Handles authentication when `AUTH_ENABLED=true`:
 - Extract OIDC tokens from kubeconfig (for CLI login)
 - Generate magic link URLs for browser authentication
 - Store/load/clear credentials locally (`~/.kubefoundry/credentials.json`)
+
+### RegistryService
+Manages in-cluster container registry for KAITO image builds:
+- Deploy and manage registry Deployment and Service
+- Check registry readiness
+- Generate registry URLs for in-cluster access
+
+### BuildKitService
+Manages BuildKit builder for KAITO custom images:
+- Deploy BuildKit using Kubernetes driver
+- Check builder status and readiness
+- Build custom AIKit images from HuggingFace GGUF models
+
+### AikitService
+Handles KAITO/AIKit image operations:
+- List available pre-made GGUF models
+- Build custom images from HuggingFace GGUF files
+- Generate image references for deployments

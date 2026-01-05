@@ -40,6 +40,27 @@ Get Kubernetes cluster connection status.
 }
 ```
 
+### GET /cluster/nodes
+Get list of cluster nodes with GPU information.
+
+**Response:**
+```json
+{
+  "nodes": [
+    {
+      "name": "gpu-node-1",
+      "ready": true,
+      "gpuCount": 2
+    },
+    {
+      "name": "cpu-node-1",
+      "ready": true,
+      "gpuCount": 0
+    }
+  ]
+}
+```
+
 ## Settings
 
 ### GET /settings
@@ -138,7 +159,55 @@ Install a provider via Helm.
 Upgrade an installed provider.
 
 ### POST /installation/providers/:id/uninstall
-Uninstall a provider.
+Uninstall a provider (preserves CRDs by default).
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Provider uninstalled (CRDs preserved - use 'Uninstall CRDs' for complete removal)",
+  "installationStatus": {
+    "installed": false,
+    "crdFound": true,
+    "operatorRunning": false
+  },
+  "results": [
+    {
+      "step": "Uninstall Helm chart: kaito-workspace",
+      "success": true,
+      "output": "release \"kaito-workspace\" uninstalled"
+    }
+  ]
+}
+```
+
+### POST /installation/providers/:id/uninstall-crds
+Delete CRDs for a provider (complete removal).
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Provider CRDs uninstalled",
+  "installationStatus": {
+    "installed": false,
+    "crdFound": false,
+    "operatorRunning": false
+  },
+  "results": [
+    {
+      "step": "Delete CRD: workspaces.kaito.sh",
+      "success": true,
+      "output": "CRD workspaces.kaito.sh deleted"
+    }
+  ]
+}
+```
+
+**Notes:**
+- This is a destructive operation - existing workloads using the CRDs will be affected
+- Use regular uninstall first to remove Helm releases while preserving CRDs
+- Use this endpoint only when you want complete removal
 
 ### GET /installation/gpu-operator/status
 Check NVIDIA GPU Operator installation status and GPU availability.
@@ -264,6 +333,7 @@ Detect cluster autoscaler type and health status.
 **Autoscaler Types:**
 - `aks-managed` - AKS managed cluster autoscaler (Azure)
 - `cluster-autoscaler` - Self-managed cluster autoscaler (any cloud)
+- `none` - No autoscaler detected
 
 **Detection Logic:**
 - Primary: Checks for `cluster-autoscaler-status` ConfigMap in `kube-system`
@@ -289,40 +359,6 @@ Get detailed autoscaler status from ConfigMap.
   ]
 }
 ```
-
-### GET /deployments/:name/pending-reasons
-Get reasons why deployment pods are pending (unschedulable).
-
-**Query Parameters:**
-- `namespace` (optional) - Deployment namespace
-
-**Response:**
-```json
-{
-  "reasons": [
-    {
-      "reason": "FailedScheduling",
-      "message": "0/3 nodes are available: 3 Insufficient nvidia.com/gpu",
-      "count": 2,
-      "firstSeen": "2025-01-15T10:30:00Z",
-      "lastSeen": "2025-01-15T10:35:00Z",
-      "type": "gpu",
-      "canAutoscalerHelp": true
-    }
-  ]
-}
-```
-
-**Failure Types:**
-- `gpu` - Insufficient GPU resources
-- `cpu` - Insufficient CPU resources
-- `memory` - Insufficient memory
-- `taint` - Node taint preventing scheduling (autoscaler cannot help)
-
-**Notes:**
-- Only returns reasons for pending pods
-- `canAutoscalerHelp` indicates if autoscaler can provision resources
-- Used to display intelligent guidance in deployment UI
 
 ## Models
 
@@ -525,7 +561,7 @@ Get installation and health status of all runtimes.
       "name": "NVIDIA Dynamo",
       "installed": true,
       "healthy": true,
-      "version": "0.1.0",
+      "version": "0.7.1",
       "message": "Operator running"
     },
     {
@@ -540,7 +576,8 @@ Get installation and health status of all runtimes.
       "name": "KAITO",
       "installed": true,
       "healthy": true,
-      "message": "KAITO installed"
+      "version": "0.6.0",
+      "message": "KAITO is installed and running"
     }
   ]
 }
@@ -553,6 +590,10 @@ Get installation and health status of all runtimes.
 - `healthy` - Whether the operator pods are running
 - `version` - Detected version (if available)
 - `message` - Status message
+
+**Notes:**
+- Used by the frontend to show available runtimes in the deployment wizard
+- Checks CRD existence and operator pod status for each provider
 
 ### DELETE /deployments/:name
 Delete a deployment.
@@ -567,6 +608,123 @@ Delete a deployment.
   "message": "Deployment deleted"
 }
 ```
+
+### GET /deployments/:name/pods
+Get pods for a deployment.
+
+**Query Parameters:**
+- `namespace` (optional)
+
+**Response:**
+```json
+{
+  "pods": [
+    {
+      "name": "qwen-deployment-worker-0",
+      "phase": "Running",
+      "ready": true,
+      "restarts": 0,
+      "node": "gpu-node-1"
+    }
+  ]
+}
+```
+
+### GET /deployments/:name/logs
+Get logs from a deployment's pods.
+
+**Query Parameters:**
+- `namespace` (optional) - Deployment namespace
+- `podName` (optional) - Specific pod to get logs from (defaults to first pod)
+- `container` (optional) - Specific container name
+- `tailLines` (optional) - Number of lines to return (default: 100, max: 10000)
+- `timestamps` (optional) - Include timestamps in log lines (true/false)
+
+**Response:**
+```json
+{
+  "logs": "[INFO] Model loaded successfully\n[INFO] Server started on port 8000\n...",
+  "podName": "qwen-deployment-worker-0",
+  "container": "model"
+}
+```
+
+**Notes:**
+- ANSI color codes are automatically stripped from logs
+- If no pods exist for the deployment, returns empty logs with a message
+
+### GET /deployments/:name/metrics
+Get Prometheus metrics from a deployment's inference service.
+
+**Query Parameters:**
+- `namespace` (optional) - Deployment namespace
+
+**Response (available):**
+```json
+{
+  "available": true,
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "metrics": [
+    {
+      "name": "vllm:num_requests_running",
+      "value": 5,
+      "labels": { "model": "Qwen/Qwen3-0.6B" }
+    },
+    {
+      "name": "vllm:gpu_cache_usage_perc",
+      "value": 45.2,
+      "labels": {}
+    }
+  ]
+}
+```
+
+**Response (off-cluster):**
+```json
+{
+  "available": false,
+  "error": "Metrics are only available when KubeFoundry is deployed inside the Kubernetes cluster.",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "metrics": [],
+  "runningOffCluster": true
+}
+```
+
+**Notes:**
+- Metrics require KubeFoundry to be running inside the cluster
+- Supports both vLLM and llama.cpp metric formats
+- Returns `runningOffCluster: true` when running locally
+
+### GET /deployments/:name/pending-reasons
+Get reasons why deployment pods are pending (unschedulable).
+
+**Query Parameters:**
+- `namespace` (optional) - Deployment namespace
+
+**Response:**
+```json
+{
+  "reasons": [
+    {
+      "reason": "FailedScheduling",
+      "message": "0/3 nodes are available: 3 Insufficient nvidia.com/gpu",
+      "isResourceConstraint": true,
+      "resourceType": "gpu",
+      "canAutoscalerHelp": true
+    }
+  ]
+}
+```
+
+**Resource Types:**
+- `gpu` - Insufficient GPU resources
+- `cpu` - Insufficient CPU resources
+- `memory` - Insufficient memory
+
+**Notes:**
+- Only returns reasons for pending pods
+- `canAutoscalerHelp` indicates if cluster autoscaler can provision resources
+- Taint and node selector issues will have `canAutoscalerHelp: false`
 
 ## HuggingFace OAuth
 
@@ -693,11 +851,16 @@ List available pre-made AIKit models.
 {
   "models": [
     {
-      "id": "llama-3.2-1b-instruct",
-      "name": "Llama 3.2 1B Instruct",
-      "image": "ghcr.io/kaito-project/aikit/llama-3.2-1b-instruct:latest",
-      "size": "1B",
-      "quantization": "Q4_K_M"
+      "id": "llama3.2-1b",
+      "modelName": "Llama 3.2 1B",
+      "image": "ghcr.io/kaito-project/aikit/llama3.2-1b:0.0.1",
+      "license": "Llama"
+    },
+    {
+      "id": "phi4-14b",
+      "modelName": "Phi 4 14B",
+      "image": "ghcr.io/kaito-project/aikit/phi4-14b:0.0.1",
+      "license": "MIT"
     }
   ],
   "total": 15
@@ -710,11 +873,10 @@ Get details for a specific pre-made model.
 **Response:**
 ```json
 {
-  "id": "llama-3.2-1b-instruct",
-  "name": "Llama 3.2 1B Instruct",
-  "image": "ghcr.io/kaito-project/aikit/llama-3.2-1b-instruct:latest",
-  "size": "1B",
-  "quantization": "Q4_K_M"
+  "id": "llama3.2-1b",
+  "modelName": "Llama 3.2 1B",
+  "image": "ghcr.io/kaito-project/aikit/llama3.2-1b:0.0.1",
+  "license": "Llama"
 }
 ```
 
@@ -725,7 +887,7 @@ Build an AIKit image from a HuggingFace GGUF model or get pre-made image referen
 ```json
 {
   "modelSource": "premade",
-  "premadeModel": "llama-3.2-1b-instruct"
+  "premadeModel": "llama3.2-1b"
 }
 ```
 
@@ -733,8 +895,8 @@ Build an AIKit image from a HuggingFace GGUF model or get pre-made image referen
 ```json
 {
   "modelSource": "huggingface",
-  "modelId": "TheBloke/Llama-2-7B-GGUF",
-  "ggufFile": "llama-2-7b.Q4_K_M.gguf",
+  "modelId": "bartowski/gemma-3-1b-it-GGUF",
+  "ggufFile": "gemma-3-1b-it-Q8_0.gguf",
   "imageName": "my-model",
   "imageTag": "v1"
 }

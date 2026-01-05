@@ -11,9 +11,9 @@ describe('KaitoProvider', () => {
       expect(provider.name).toBe('KAITO');
     });
 
-    test('has description mentioning CPU inference', () => {
-      expect(provider.description).toContain('CPU');
+    test('has description mentioning GGUF and vLLM', () => {
       expect(provider.description).toContain('GGUF');
+      expect(provider.description).toContain('vLLM');
     });
 
     test('has default namespace', () => {
@@ -54,6 +54,19 @@ describe('KaitoProvider', () => {
       replicas: 1,
     };
 
+    const baseVllmConfig = {
+      name: 'vllm-deployment',
+      namespace: 'test-ns',
+      provider: 'kaito',
+      modelSource: 'vllm' as const,
+      modelId: 'mistralai/Mistral-7B-v0.1',
+      computeType: 'gpu' as const,
+      replicas: 1,
+      resources: {
+        gpu: 2,
+      },
+    };
+
     test('generates valid Workspace manifest for premade model', () => {
       const manifest = provider.generateManifest(basePremadeConfig);
 
@@ -69,6 +82,87 @@ describe('KaitoProvider', () => {
       expect(manifest.apiVersion).toBe('kaito.sh/v1beta1');
       expect(manifest.kind).toBe('Workspace');
       expect((manifest.metadata as any).name).toBe('hf-deployment');
+    });
+
+    test('generates valid Workspace manifest for vLLM model', () => {
+      const manifest = provider.generateManifest(baseVllmConfig);
+
+      expect(manifest.apiVersion).toBe('kaito.sh/v1beta1');
+      expect(manifest.kind).toBe('Workspace');
+      expect((manifest.metadata as any).name).toBe('vllm-deployment');
+      expect((manifest.metadata as any).labels['kubefoundry.io/model-source']).toBe('vllm');
+      expect((manifest.metadata as any).labels['kubefoundry.io/compute-type']).toBe('gpu');
+    });
+
+    test('vLLM manifest uses kaito-base image', () => {
+      const manifest = provider.generateManifest(baseVllmConfig);
+      const container = (manifest.inference as any).template.spec.containers[0];
+      expect(container.image).toBe('mcr.microsoft.com/aks/kaito/kaito-base:0.1.1');
+    });
+
+    test('vLLM manifest has correct command and args', () => {
+      const manifest = provider.generateManifest(baseVllmConfig);
+      const container = (manifest.inference as any).template.spec.containers[0];
+      expect(container.command).toEqual(['python']);
+      expect(container.args).toContain('-m');
+      expect(container.args).toContain('vllm.entrypoints.openai.api_server');
+      expect(container.args).toContain('--model');
+      expect(container.args).toContain('mistralai/Mistral-7B-v0.1');
+      expect(container.args).toContain('--tensor-parallel-size');
+      expect(container.args).toContain('2');  // GPU count
+      expect(container.args).toContain('--trust-remote-code');
+    });
+
+    test('vLLM manifest uses port 8000', () => {
+      const manifest = provider.generateManifest(baseVllmConfig);
+      const container = (manifest.inference as any).template.spec.containers[0];
+      expect(container.ports[0].containerPort).toBe(8000);
+    });
+
+    test('vLLM manifest includes GPU resources', () => {
+      const manifest = provider.generateManifest(baseVllmConfig);
+      const container = (manifest.inference as any).template.spec.containers[0];
+      expect(container.resources.requests['nvidia.com/gpu']).toBe(2);
+      expect(container.resources.limits['nvidia.com/gpu']).toBe(2);
+    });
+
+    test('vLLM manifest includes shared memory volume', () => {
+      const manifest = provider.generateManifest(baseVllmConfig);
+      const spec = (manifest.inference as any).template.spec;
+      expect(spec.volumes).toHaveLength(1);
+      expect(spec.volumes[0].name).toBe('dshm');
+      expect(spec.volumes[0].emptyDir.medium).toBe('Memory');
+      const container = spec.containers[0];
+      expect(container.volumeMounts).toHaveLength(1);
+      expect(container.volumeMounts[0].mountPath).toBe('/dev/shm');
+    });
+
+    test('vLLM manifest includes maxModelLen when provided', () => {
+      const configWithMaxLen = { ...baseVllmConfig, maxModelLen: 4096 };
+      const manifest = provider.generateManifest(configWithMaxLen);
+      const container = (manifest.inference as any).template.spec.containers[0];
+      expect(container.args).toContain('--max-model-len');
+      expect(container.args).toContain('4096');
+    });
+
+    test('vLLM manifest includes HF_TOKEN env when hfTokenSecret provided', () => {
+      const configWithToken = { ...baseVllmConfig, hfTokenSecret: 'my-hf-secret' };
+      const manifest = provider.generateManifest(configWithToken);
+      const container = (manifest.inference as any).template.spec.containers[0];
+      expect(container.env).toHaveLength(1);
+      expect(container.env[0].name).toBe('HF_TOKEN');
+      expect(container.env[0].valueFrom.secretKeyRef.name).toBe('my-hf-secret');
+      expect(container.env[0].valueFrom.secretKeyRef.key).toBe('HF_TOKEN');
+    });
+
+    test('vLLM manifest includes probes', () => {
+      const manifest = provider.generateManifest(baseVllmConfig);
+      const container = (manifest.inference as any).template.spec.containers[0];
+      expect(container.livenessProbe).toBeDefined();
+      expect(container.livenessProbe.httpGet.port).toBe(8000);
+      expect(container.livenessProbe.httpGet.path).toBe('/health');
+      expect(container.readinessProbe).toBeDefined();
+      expect(container.readinessProbe.httpGet.port).toBe(8000);
     });
 
     test('includes kubefoundry labels', () => {
@@ -198,7 +292,49 @@ describe('KaitoProvider', () => {
       expect(status.phase).toBe('Running');
       expect(status.replicas.desired).toBe(2);
       expect(status.replicas.ready).toBe(2);
-      expect(status.frontendService).toBe('test-deployment');
+      expect(status.engine).toBe('llamacpp');
+      expect(status.frontendService).toBe('test-deployment:5000');
+    });
+
+    test('parses vLLM deployment status', () => {
+      const raw = {
+        metadata: {
+          name: 'vllm-deployment',
+          namespace: 'test-ns',
+          creationTimestamp: '2024-01-01T00:00:00Z',
+          labels: {
+            'kubefoundry.io/compute-type': 'gpu',
+            'kubefoundry.io/model-source': 'vllm',
+          },
+        },
+        resource: {
+          count: 1,
+        },
+        inference: {
+          template: {
+            spec: {
+              containers: [
+                {
+                  image: 'mcr.microsoft.com/aks/kaito/kaito-base:0.1.1',
+                  command: ['python'],
+                  args: ['-m', 'vllm.entrypoints.openai.api_server', '--model', 'mistralai/Mistral-7B-v0.1', '--tensor-parallel-size', '2'],
+                },
+              ],
+            },
+          },
+        },
+        status: {
+          phase: 'Running',
+          workerNodes: ['node-1'],
+        },
+      };
+
+      const status = provider.parseStatus(raw);
+
+      expect(status.name).toBe('vllm-deployment');
+      expect(status.engine).toBe('vllm');
+      expect(status.modelId).toBe('mistralai/Mistral-7B-v0.1');
+      expect(status.frontendService).toBe('vllm-deployment:8000');
     });
 
     test('parses pending deployment', () => {
@@ -342,6 +478,40 @@ describe('KaitoProvider', () => {
       expect(result.errors).toHaveLength(0);
     });
 
+    test('validates correct vllm configuration', () => {
+      const config = {
+        name: 'valid-name',
+        namespace: 'test-ns',
+        provider: 'kaito',
+        modelSource: 'vllm',
+        modelId: 'mistralai/Mistral-7B-v0.1',
+        computeType: 'gpu',
+        resources: { gpu: 2 },
+      };
+
+      const result = provider.validateConfig(config);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    test('validates vllm configuration with optional fields', () => {
+      const config = {
+        name: 'valid-name',
+        namespace: 'test-ns',
+        provider: 'kaito',
+        modelSource: 'vllm',
+        modelId: 'meta-llama/Llama-2-7b-hf',
+        computeType: 'gpu',
+        resources: { gpu: 4 },
+        maxModelLen: 8192,
+        hfTokenSecret: 'hf-secret',
+      };
+
+      const result = provider.validateConfig(config);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
     test('rejects invalid kubernetes name', () => {
       const config = {
         name: 'Invalid_Name',
@@ -433,7 +603,7 @@ describe('KaitoProvider', () => {
   });
 
   describe('metrics', () => {
-    test('getMetricsConfig returns valid config', () => {
+    test('getMetricsConfig returns valid config for llama.cpp (default)', () => {
       const config = provider.getMetricsConfig();
       expect(config).not.toBeNull();
       expect(config!.endpointPath).toBe('/metrics');
@@ -441,7 +611,19 @@ describe('KaitoProvider', () => {
       expect(config!.serviceNamePattern).toContain('{name}');
     });
 
-    test('getKeyMetrics returns metric definitions', () => {
+    test('getMetricsConfigForModelSource returns correct port for vllm', () => {
+      const config = provider.getMetricsConfigForModelSource('vllm');
+      expect(config).not.toBeNull();
+      expect(config!.port).toBe(8000);
+    });
+
+    test('getMetricsConfigForModelSource returns correct port for huggingface', () => {
+      const config = provider.getMetricsConfigForModelSource('huggingface');
+      expect(config).not.toBeNull();
+      expect(config!.port).toBe(5000);
+    });
+
+    test('getKeyMetrics returns metric definitions for both engines', () => {
       const metrics = provider.getKeyMetrics();
       expect(metrics.length).toBeGreaterThan(0);
 
@@ -449,6 +631,10 @@ describe('KaitoProvider', () => {
       const metricNames = metrics.map(m => m.name);
       expect(metricNames).toContain('llamacpp_requests_processing');
       expect(metricNames).toContain('llamacpp_kv_cache_usage_ratio');
+
+      // Check for expected vLLM metrics
+      expect(metricNames).toContain('vllm:num_requests_running');
+      expect(metricNames).toContain('vllm:gpu_cache_usage_perc');
     });
 
     test('metrics have required fields', () => {

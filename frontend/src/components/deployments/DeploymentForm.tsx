@@ -18,7 +18,48 @@ import { generateDeploymentName, cn } from '@/lib/utils'
 import { type Model, type DetailedClusterCapacity, type AutoscalerDetectionResult, type RuntimeStatus, type PremadeModel, aikitApi, type Engine } from '@/lib/api'
 import { ChevronDown, AlertCircle, Rocket, CheckCircle2, Sparkles, AlertTriangle, Server, Cpu, Box, Loader2 } from 'lucide-react'
 import { CapacityWarning } from './CapacityWarning'
-import { calculateGpuRecommendation } from '@/lib/gpu-recommendations'
+import { calculateGpuRecommendation, type GpuRecommendation } from '@/lib/gpu-recommendations'
+
+// Reusable GPU per Replica field component
+interface GpuPerReplicaFieldProps {
+  id: string
+  value: number
+  onChange: (value: number) => void
+  maxGpus?: number
+  recommendation: GpuRecommendation
+}
+
+function GpuPerReplicaField({ id, value, onChange, maxGpus = 8, recommendation }: GpuPerReplicaFieldProps) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id} className="flex items-center gap-2">
+        GPUs per Replica
+        {value === recommendation.recommendedGpus && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+            <Sparkles className="h-3 w-3" />
+            Recommended
+          </span>
+        )}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        min={1}
+        max={maxGpus}
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value) || 1)}
+      />
+      <p className="text-xs text-muted-foreground">
+        {recommendation.reason}
+        {recommendation.alternatives && recommendation.alternatives.length > 0 && (
+          <span className="block mt-1">
+            Consider: {recommendation.alternatives.join(', ')} GPUs
+          </span>
+        )}
+      </p>
+    </div>
+  )
+}
 
 interface DeploymentFormProps {
   model: Model
@@ -49,7 +90,7 @@ const RUNTIME_INFO: Record<RuntimeId, { name: string; description: string; defau
   },
   kaito: {
     name: 'KAITO',
-    description: 'CPU-capable inference with pre-built GGUF models via llama.cpp',
+    description: 'Flexible inference with GGUF (llama.cpp) and vLLM support',
     defaultNamespace: 'kaito-workspace',
   },
 }
@@ -63,9 +104,9 @@ const RUNTIME_ENGINES: Record<RuntimeId, TraditionalEngine[]> = {
 
 // Check if a runtime is compatible with a model based on engine support
 function isRuntimeCompatible(runtimeId: RuntimeId, modelEngines: Engine[]): boolean {
-  // KAITO models (llamacpp engine) are only compatible with KAITO runtime
-  if (modelEngines.includes('llamacpp')) {
-    return runtimeId === 'kaito';
+  // KAITO supports llamacpp (GGUF) AND vllm models
+  if (runtimeId === 'kaito') {
+    return modelEngines.includes('llamacpp') || modelEngines.includes('vllm');
   }
   // Other models need at least one matching engine with the runtime
   const runtimeEngines = RUNTIME_ENGINES[runtimeId];
@@ -121,6 +162,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
   const [preferredNodes, setPreferredNodes] = useState<string[]>([])
   const [ggufFile, setGgufFile] = useState<string>('')
   const [ggufRunMode, setGgufRunMode] = useState<GgufRunMode>('direct')
+  const [maxModelLen, setMaxModelLen] = useState<number | undefined>(undefined)
   
   // Fetch cluster nodes for KAITO preferred nodes selection
   const { data: clusterNodesData, isLoading: clusterNodesLoading } = useClusterNodes(selectedRuntime === 'kaito');
@@ -131,6 +173,11 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
   const isHuggingFaceGgufModel = model.supportedEngines.length === 1 && 
                                   model.supportedEngines[0] === 'llamacpp' &&
                                   !model.id.startsWith('kaito/');
+
+  // Check if this is a vLLM-compatible model for KAITO
+  // vLLM models have 'vllm' in supported engines but NOT 'llamacpp'
+  const isVllmModel = model.supportedEngines.includes('vllm') && 
+                      !model.supportedEngines.includes('llamacpp');
 
   // Fetch GGUF files from HuggingFace repo when it's a GGUF model and KAITO is selected
   const { data: ggufFilesData, isLoading: ggufFilesLoading } = useGgufFiles(
@@ -351,6 +398,19 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
               ...(preferredNodes.length > 0 && { preferredNodes }),
             }
           }
+        } else if (isVllmModel) {
+          // vLLM model via KAITO - GPU always required
+          const gpuCount = config.resources?.gpu || 1;
+          deployConfig = {
+            ...deployConfig,
+            modelSource: 'vllm',
+            modelId: model.id,
+            computeType: 'gpu',  // vLLM always requires GPU
+            resources: { gpu: gpuCount },
+            ...(maxModelLen && { maxModelLen }),
+            ...(model.gated && config.hfTokenSecret && { hfTokenSecret: config.hfTokenSecret }),
+            ...(preferredNodes.length > 0 && { preferredNodes }),
+          }
         } else {
           // Premade model
           deployConfig = {
@@ -385,7 +445,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
         variant: 'destructive',
       })
     }
-  }, [config, createDeployment, navigate, toast, triggerConfetti, selectedRuntime, kaitoComputeType, selectedPremadeModel, isHuggingFaceGgufModel, model.id, ggufFile, ggufRunMode, preferredNodes])
+  }, [config, createDeployment, navigate, toast, triggerConfetti, selectedRuntime, kaitoComputeType, selectedPremadeModel, isHuggingFaceGgufModel, isVllmModel, model.id, model.gated, ggufFile, ggufRunMode, preferredNodes, maxModelLen])
 
   const updateConfig = <K extends keyof DeploymentConfig>(
     key: K,
@@ -417,11 +477,14 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
 
   // Check if KAITO configuration is valid
   // For HuggingFace GGUF models, we need a ggufFile for both direct and build modes
+  // For vLLM models, we need at least 1 GPU
   // For premade, we need a selected model
   const isKaitoConfigValid = selectedRuntime !== 'kaito' || 
     (isHuggingFaceGgufModel 
       ? ggufFile.endsWith('.gguf')
-      : selectedPremadeModel !== null)
+      : isVllmModel
+        ? (config.resources?.gpu || 0) >= 1
+        : selectedPremadeModel !== null)
 
   // Status-aware button content
   const getButtonContent = () => {
@@ -433,12 +496,16 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       return 'Runtime Not Installed'
     }
 
-    if (selectedRuntime === 'kaito' && !isHuggingFaceGgufModel && !selectedPremadeModel) {
+    if (selectedRuntime === 'kaito' && !isHuggingFaceGgufModel && !isVllmModel && !selectedPremadeModel) {
       return 'Select a Model'
     }
 
     if (selectedRuntime === 'kaito' && isHuggingFaceGgufModel && !ggufFile.endsWith('.gguf')) {
       return 'Select GGUF File'
+    }
+
+    if (selectedRuntime === 'kaito' && isVllmModel && (config.resources?.gpu || 0) < 1) {
+      return 'Configure GPUs'
     }
 
     switch (createDeployment.status) {
@@ -640,14 +707,24 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
         </CardContent>
       </Card>
 
-      {/* Engine Selection - only show for non-KAITO runtimes */}
-      {selectedRuntime !== 'kaito' && (
+      {/* Engine Selection - show for non-KAITO runtimes OR KAITO with vLLM models */}
+      {(selectedRuntime !== 'kaito' || isVllmModel) && (
       <Card>
         <CardHeader>
           <CardTitle>Inference Engine</CardTitle>
         </CardHeader>
         <CardContent>
-          {availableEngines.length === 0 ? (
+          {selectedRuntime === 'kaito' && isVllmModel ? (
+            // KAITO vLLM - only vLLM option
+            <RadioGroup value="vllm" className="flex gap-4">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="vllm" id="engine-vllm" />
+                <Label htmlFor="engine-vllm" className="cursor-pointer">
+                  vLLM
+                </Label>
+              </div>
+            </RadioGroup>
+          ) : availableEngines.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No compatible engines available for this model with {RUNTIME_INFO[selectedRuntime].name}.
             </p>
@@ -673,8 +750,8 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       </Card>
       )}
 
-      {/* KAITO Model Selection - only show for KAITO runtime */}
-      {selectedRuntime === 'kaito' && (
+      {/* KAITO Model Configuration - only show for KAITO runtime with non-vLLM models */}
+      {selectedRuntime === 'kaito' && !isVllmModel && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -683,7 +760,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Compute Type Selection */}
+            {/* Compute Type Selection - only for non-vLLM models (vLLM always requires GPU) */}
             <div className="space-y-3">
               <Label>Compute Type</Label>
               <RadioGroup
@@ -866,8 +943,8 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
         </Card>
       )}
 
-      {/* Deployment Mode - only show for non-KAITO runtimes */}
-      {selectedRuntime !== 'kaito' && (
+      {/* Deployment Mode - show for non-KAITO runtimes OR KAITO with vLLM models */}
+      {(selectedRuntime !== 'kaito' || isVllmModel) && (
       <Card>
         <CardHeader>
           <CardTitle>Deployment Mode</CardTitle>
@@ -875,7 +952,12 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
         <CardContent>
           <RadioGroup
             value={config.mode}
-            onValueChange={(value) => updateConfig('mode', value as DeploymentMode)}
+            onValueChange={(value) => {
+              // Only allow changing mode for non-KAITO runtimes
+              if (selectedRuntime !== 'kaito') {
+                updateConfig('mode', value as DeploymentMode)
+              }
+            }}
             className="grid gap-4 sm:grid-cols-2"
           >
             <div className="flex items-start space-x-2">
@@ -889,14 +971,24 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                 </p>
               </div>
             </div>
-            <div className="flex items-start space-x-2">
-              <RadioGroupItem value="disaggregated" id="mode-disaggregated" className="mt-1" />
+            <div className={cn("flex items-start space-x-2", selectedRuntime === 'kaito' && "opacity-50")}>
+              <RadioGroupItem 
+                value="disaggregated" 
+                id="mode-disaggregated" 
+                className="mt-1" 
+                disabled={selectedRuntime === 'kaito'}
+              />
               <div>
-                <Label htmlFor="mode-disaggregated" className="cursor-pointer font-medium">
+                <Label 
+                  htmlFor="mode-disaggregated" 
+                  className={cn("font-medium", selectedRuntime === 'kaito' ? "cursor-not-allowed" : "cursor-pointer")}
+                >
                   Disaggregated (P/D)
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Separate prefill and decode workers for better resource utilization
+                  {selectedRuntime === 'kaito' 
+                    ? 'Separate prefill and decode workers - not supported by KAITO'
+                    : 'Separate prefill and decode workers for better resource utilization'}
                 </p>
               </div>
             </div>
@@ -905,15 +997,15 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       </Card>
       )}
 
-      {/* Deployment Options - only show for non-KAITO runtimes */}
-      {selectedRuntime !== 'kaito' && (
+      {/* Deployment Options - show for all runtimes with vLLM/GPU */}
+      {(selectedRuntime !== 'kaito' || isVllmModel || kaitoComputeType === 'gpu') && (
       <Card>
         <CardHeader>
           <CardTitle>Deployment Options</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {config.mode === 'aggregated' ? (
-            /* Aggregated mode: single replica count */
+          {config.mode === 'aggregated' || selectedRuntime === 'kaito' ? (
+            /* Aggregated mode: single replica count (KAITO always uses aggregated) */
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="replicas">Worker Replicas</Label>
@@ -928,42 +1020,21 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
               </div>
 
               {/* GPU per Replica with recommendation */}
-              <div className="space-y-2">
-                <Label htmlFor="gpusPerReplica" className="flex items-center gap-2">
-                  GPUs per Replica
-                  {config.resources?.gpu === gpuRecommendation.recommendedGpus && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      <Sparkles className="h-3 w-3" />
-                      Recommended
-                    </span>
-                  )}
-                </Label>
-                <Input
-                  id="gpusPerReplica"
-                  type="number"
-                  min={1}
-                  max={detailedCapacity?.maxNodeGpuCapacity || 8}
-                  value={config.resources?.gpu || gpuRecommendation.recommendedGpus}
-                  onChange={(e) => {
-                    const value = parseInt(e.target.value) || 1
-                    setConfig(prev => ({
-                      ...prev,
-                      resources: {
-                        ...prev.resources,
-                        gpu: value
-                      }
-                    }))
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {gpuRecommendation.reason}
-                  {gpuRecommendation.alternatives && gpuRecommendation.alternatives.length > 0 && (
-                    <span className="block mt-1">
-                      Consider: {gpuRecommendation.alternatives.join(', ')} GPUs
-                    </span>
-                  )}
-                </p>
-              </div>
+              <GpuPerReplicaField
+                id="gpusPerReplica"
+                value={config.resources?.gpu || gpuRecommendation.recommendedGpus}
+                onChange={(value) => {
+                  setConfig(prev => ({
+                    ...prev,
+                    resources: {
+                      ...prev.resources,
+                      gpu: value
+                    }
+                  }))
+                }}
+                maxGpus={detailedCapacity?.maxNodeGpuCapacity || 8}
+                recommendation={gpuRecommendation}
+              />
 
               {/* Router Mode is only applicable to Dynamo provider */}
               {selectedRuntime === 'dynamo' && (
@@ -1056,54 +1127,8 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       </Card>
       )}
 
-      {/* KAITO Deployment Options */}
-      {selectedRuntime === 'kaito' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Deployment Options</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="kaito-replicas">Replicas</Label>
-                <Input
-                  id="kaito-replicas"
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={config.replicas}
-                  onChange={(e) => updateConfig('replicas', parseInt(e.target.value) || 1)}
-                />
-              </div>
-              {kaitoComputeType === 'gpu' && (
-                <div className="space-y-2">
-                  <Label htmlFor="kaito-gpus">GPUs per Replica</Label>
-                  <Input
-                    id="kaito-gpus"
-                    type="number"
-                    min={1}
-                    max={8}
-                    value={config.resources?.gpu || 1}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || 1
-                      setConfig(prev => ({
-                        ...prev,
-                        resources: {
-                          ...prev.resources,
-                          gpu: value
-                        }
-                      }))
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Advanced Options - only show for non-KAITO runtimes */}
-      {selectedRuntime !== 'kaito' && (
+      {/* Advanced Options - show for non-KAITO runtimes OR KAITO with vLLM models */}
+      {(selectedRuntime !== 'kaito' || isVllmModel) && (
       <Card>
         <CardHeader
           className="cursor-pointer select-none"
@@ -1129,53 +1154,66 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
         >
           <div className="overflow-hidden">
             <CardContent className="space-y-4 pt-0">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Enforce Eager Mode</Label>
-                <p className="text-xs text-muted-foreground">
-                  Use eager mode for faster startup
-                </p>
-              </div>
-              <Switch
-                checked={config.enforceEager}
-                onCheckedChange={(checked) => updateConfig('enforceEager', checked)}
-              />
-            </div>
+            {/* These options only apply to non-KAITO runtimes */}
+            {selectedRuntime !== 'kaito' && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Enforce Eager Mode</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Use eager mode for faster startup
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.enforceEager}
+                    onCheckedChange={(checked) => updateConfig('enforceEager', checked)}
+                  />
+                </div>
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Enable Prefix Caching</Label>
-                <p className="text-xs text-muted-foreground">
-                  Cache common prefixes for faster inference
-                </p>
-              </div>
-              <Switch
-                checked={config.enablePrefixCaching}
-                onCheckedChange={(checked) => updateConfig('enablePrefixCaching', checked)}
-              />
-            </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Enable Prefix Caching</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Cache common prefixes for faster inference
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.enablePrefixCaching}
+                    onCheckedChange={(checked) => updateConfig('enablePrefixCaching', checked)}
+                  />
+                </div>
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Trust Remote Code</Label>
-                <p className="text-xs text-muted-foreground">
-                  Required for some models with custom code
-                </p>
-              </div>
-              <Switch
-                checked={config.trustRemoteCode}
-                onCheckedChange={(checked) => updateConfig('trustRemoteCode', checked)}
-              />
-            </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Trust Remote Code</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Required for some models with custom code
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.trustRemoteCode}
+                    onCheckedChange={(checked) => updateConfig('trustRemoteCode', checked)}
+                  />
+                </div>
+              </>
+            )}
 
+            {/* Context Length - shown for all runtimes, but uses different state for KAITO */}
             <div className="space-y-2">
               <Label htmlFor="contextLength">Context Length (optional)</Label>
               <Input
                 id="contextLength"
                 type="number"
                 placeholder={model.contextLength?.toString() || 'Default'}
-                value={config.contextLength || ''}
-                onChange={(e) => updateConfig('contextLength', e.target.value ? parseInt(e.target.value) : undefined)}
+                value={selectedRuntime === 'kaito' ? (maxModelLen || '') : (config.contextLength || '')}
+                onChange={(e) => {
+                  const value = e.target.value ? parseInt(e.target.value) : undefined
+                  if (selectedRuntime === 'kaito') {
+                    setMaxModelLen(value)
+                  } else {
+                    updateConfig('contextLength', value)
+                  }
+                }}
               />
             </div>
             </CardContent>
@@ -1184,8 +1222,8 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       </Card>
       )}
 
-        {/* Capacity Warning - only show for non-KAITO or KAITO with GPU */}
-        {detailedCapacity && (selectedRuntime !== 'kaito' || kaitoComputeType === 'gpu') && (
+        {/* Capacity Warning - only show for non-KAITO or KAITO with GPU/vLLM */}
+        {detailedCapacity && (selectedRuntime !== 'kaito' || kaitoComputeType === 'gpu' || isVllmModel) && (
           <CapacityWarning
             selectedGpus={selectedGpus}
             capacity={detailedCapacity}

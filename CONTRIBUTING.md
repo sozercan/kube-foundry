@@ -74,14 +74,20 @@ kubefoundry/
 │   │   │   ├── index.ts      # Provider registry
 │   │   │   ├── dynamo/       # NVIDIA Dynamo provider
 │   │   │   ├── kuberay/      # KubeRay provider
-│   │   │   └── kaito/        # KAITO provider (CPU/GPU via llama.cpp)
+│   │   │   └── kaito/        # KAITO provider (CPU/GPU via llama.cpp or vLLM)
 │   │   ├── services/    # Core services
 │   │   │   ├── kubernetes.ts # K8s client
 │   │   │   ├── config.ts     # ConfigMap persistence
 │   │   │   ├── helm.ts       # Helm CLI integration
+│   │   │   ├── metrics.ts    # Prometheus metrics fetching
+│   │   │   ├── autoscaler.ts # Cluster autoscaler detection
 │   │   │   ├── aikit.ts      # AIKit image building
 │   │   │   ├── buildkit.ts   # BuildKit builder management
 │   │   │   └── registry.ts   # In-cluster registry management
+│   │   ├── lib/         # Utility libraries
+│   │   │   ├── k8s-errors.ts # K8s error handling
+│   │   │   ├── prometheus-parser.ts # Prometheus text parser
+│   │   │   └── retry.ts      # Retry logic for K8s calls
 │   │   └── data/        # Static model catalog
 │   └── ...
 ├── shared/            # Shared TypeScript types
@@ -230,30 +236,64 @@ curl -X POST http://localhost:3001/api/deployments \
 
 ## API Endpoints
 
+### Health & Cluster
+- `GET /api/health` - Health check
+- `GET /api/health/version` - Build version information
+- `GET /api/cluster/status` - Kubernetes cluster status
+- `GET /api/cluster/nodes` - List cluster nodes with GPU info
+
 ### Settings
 - `GET /api/settings` - Get current settings and provider list
 - `PUT /api/settings` - Update settings
 
+### Runtimes
+- `GET /api/runtimes/status` - Get all runtimes installation status
+
 ### Installation
 - `GET /api/installation/helm/status` - Check Helm CLI availability
+- `GET /api/installation/gpu-operator/status` - GPU Operator status
+- `GET /api/installation/gpu-capacity` - Cluster GPU capacity
+- `GET /api/installation/gpu-capacity/detailed` - Detailed GPU capacity with node pools
+- `POST /api/installation/gpu-operator/install` - Install GPU Operator
 - `GET /api/installation/providers/:id/status` - Get provider installation status
 - `GET /api/installation/providers/:id/commands` - Get manual installation commands
 - `POST /api/installation/providers/:id/install` - Install provider via Helm
 - `POST /api/installation/providers/:id/upgrade` - Upgrade provider
 - `POST /api/installation/providers/:id/uninstall` - Uninstall provider
+- `POST /api/installation/providers/:id/uninstall-crds` - Uninstall provider CRDs
 
 ### Deployments
 - `GET /api/deployments` - List all deployments
 - `POST /api/deployments` - Create a new deployment
 - `GET /api/deployments/:name` - Get deployment details
 - `DELETE /api/deployments/:name` - Delete a deployment
+- `GET /api/deployments/:name/pods` - Get deployment pods
+- `GET /api/deployments/:name/logs` - Get deployment logs
+- `GET /api/deployments/:name/metrics` - Get deployment metrics
+- `GET /api/deployments/:name/pending-reasons` - Get pending pod reasons
 
 ### Models
 - `GET /api/models` - Get model catalog
+- `GET /api/models/search` - Search HuggingFace models
 
-### Health
-- `GET /api/health` - Health check
-- `GET /api/cluster/status` - Kubernetes cluster status
+### Autoscaler
+- `GET /api/autoscaler/detection` - Detect autoscaler type
+- `GET /api/autoscaler/status` - Get autoscaler status
+
+### AIKit (KAITO)
+- `GET /api/aikit/models` - List pre-made GGUF models
+- `GET /api/aikit/models/:id` - Get pre-made model details
+- `POST /api/aikit/build` - Build AIKit image
+- `POST /api/aikit/build/preview` - Preview image build
+- `GET /api/aikit/infrastructure/status` - Check build infrastructure
+- `POST /api/aikit/infrastructure/setup` - Setup build infrastructure
+
+### OAuth & Secrets
+- `GET /api/oauth/huggingface/config` - Get HuggingFace OAuth config
+- `POST /api/oauth/huggingface/token` - Exchange OAuth code for token
+- `GET /api/secrets/huggingface/status` - HuggingFace secret status
+- `POST /api/secrets/huggingface` - Save HuggingFace token
+- `DELETE /api/secrets/huggingface` - Delete HuggingFace token
 
 ## Troubleshooting
 

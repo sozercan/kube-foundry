@@ -34,13 +34,14 @@ export interface DeploymentConfig {
   decodeGpus?: number;           // GPUs per decode worker
 
   // KAITO-specific fields
-  modelSource?: 'premade' | 'huggingface';  // Model source for KAITO
+  modelSource?: 'premade' | 'huggingface' | 'vllm';  // Model source for KAITO
   premadeModel?: string;         // Premade model ID (e.g., 'llama3.2:1b')
   ggufFile?: string;             // GGUF filename for build mode
   ggufRunMode?: GgufRunMode;     // 'direct' uses runner image, 'build' builds custom image
   imageRef?: string;             // Built/resolved image reference
   computeType?: 'cpu' | 'gpu';   // Compute type for KAITO
   preferredNodes?: string[];     // Preferred node names for scheduling
+  maxModelLen?: number;          // Max model length for vLLM mode
 }
 
 export interface PodStatus {

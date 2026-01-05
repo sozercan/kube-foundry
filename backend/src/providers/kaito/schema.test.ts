@@ -21,6 +21,18 @@ describe('kaitoDeploymentConfigSchema', () => {
     computeType: 'cpu',
   };
 
+  const validVllmConfig = {
+    name: 'my-vllm-deployment',
+    namespace: 'kaito-workspace',
+    provider: 'kaito',
+    modelSource: 'vllm',
+    modelId: 'mistralai/Mistral-7B-v0.1',
+    computeType: 'gpu',
+    resources: {
+      gpu: 1,
+    },
+  };
+
   describe('valid configurations', () => {
     it('accepts minimal premade configuration', () => {
       const result = kaitoDeploymentConfigSchema.safeParse(validPremadeConfig);
@@ -44,6 +56,39 @@ describe('kaitoDeploymentConfigSchema', () => {
         expect(result.data.modelSource).toBe('huggingface');
         expect(result.data.modelId).toBe('TheBloke/Llama-2-7B-Chat-GGUF');
         expect(result.data.ggufFile).toBe('llama-2-7b-chat.Q4_K_M.gguf');
+      }
+    });
+
+    it('accepts minimal vLLM configuration', () => {
+      const result = kaitoDeploymentConfigSchema.safeParse(validVllmConfig);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.name).toBe('my-vllm-deployment');
+        expect(result.data.modelSource).toBe('vllm');
+        expect(result.data.modelId).toBe('mistralai/Mistral-7B-v0.1');
+        expect(result.data.computeType).toBe('gpu');
+      }
+    });
+
+    it('accepts vLLM configuration with maxModelLen', () => {
+      const result = kaitoDeploymentConfigSchema.safeParse({
+        ...validVllmConfig,
+        maxModelLen: 4096,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.maxModelLen).toBe(4096);
+      }
+    });
+
+    it('accepts vLLM configuration with hfTokenSecret', () => {
+      const result = kaitoDeploymentConfigSchema.safeParse({
+        ...validVllmConfig,
+        hfTokenSecret: 'hf-token-secret',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.hfTokenSecret).toBe('hf-token-secret');
       }
     });
 
@@ -193,6 +238,25 @@ describe('kaitoDeploymentConfigSchema', () => {
     it('accepts huggingface with ggufFile in build mode', () => {
       const result = kaitoDeploymentConfigSchema.safeParse({ ...validHuggingFaceConfig, ggufRunMode: 'build' });
       expect(result.success).toBe(true);
+    });
+
+    it('accepts vllm with just modelId', () => {
+      const result = kaitoDeploymentConfigSchema.safeParse(validVllmConfig);
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects vllm without modelId', () => {
+      const { modelId, ...configWithoutModelId } = validVllmConfig;
+      const result = kaitoDeploymentConfigSchema.safeParse(configWithoutModelId);
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts vllm modelSource', () => {
+      const result = kaitoDeploymentConfigSchema.safeParse(validVllmConfig);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.modelSource).toBe('vllm');
+      }
     });
 
     it('rejects invalid modelSource', () => {
