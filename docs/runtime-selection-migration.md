@@ -193,7 +193,6 @@ This plan transforms KubeFoundry from a "single active provider" model to a "mul
 - Installation status (CRD, operator pods, version)
 - Install/Upgrade buttons
 - Manual installation commands
-- Troubleshooting info
 
 ### 3.4 Update Sidebar
 
