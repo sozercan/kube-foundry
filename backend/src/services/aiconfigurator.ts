@@ -5,6 +5,31 @@ import type {
   AIConfiguratorConfig,
 } from '@kubefoundry/shared';
 import logger from '../lib/logger';
+import * as fs from 'fs';
+
+// Kubernetes service account token path (exists only when running in-cluster)
+const K8S_SERVICE_ACCOUNT_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
+
+/**
+ * Check if KubeFoundry is running inside a Kubernetes cluster
+ * AI Configurator is only available when running locally, not in-cluster
+ */
+function isRunningInCluster(): boolean {
+  try {
+    return fs.existsSync(K8S_SERVICE_ACCOUNT_TOKEN_PATH);
+  } catch {
+    return false;
+  }
+}
+
+// Cache the in-cluster check result
+let _isInCluster: boolean | null = null;
+function checkInCluster(): boolean {
+  if (_isInCluster === null) {
+    _isInCluster = isRunningInCluster();
+  }
+  return _isInCluster;
+}
 
 // Supported GPU systems in aiconfigurator
 type GpuSystem = 'h100_sxm' | 'h200_sxm' | 'a100_sxm' | 'l40s' | 'b200_sxm' | 'gb200_sxm';
@@ -66,6 +91,15 @@ class AIConfiguratorService {
    * @param forceRefresh - If true, bypasses the cache and checks again
    */
   async checkStatus(forceRefresh = false): Promise<AIConfiguratorStatus> {
+    // If running in-cluster, AI Configurator is not applicable
+    if (checkInCluster()) {
+      return {
+        available: false,
+        runningInCluster: true,
+        error: 'AI Configurator is only available when running KubeFoundry locally',
+      };
+    }
+
     // Return cached status if still valid
     const now = Date.now();
     if (!forceRefresh && this.cachedStatus && (now - this.statusCacheTime) < STATUS_CACHE_TTL_MS) {

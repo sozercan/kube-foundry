@@ -989,9 +989,19 @@ Check if AI Configurator CLI is available on the system.
 }
 ```
 
+**Response (running in-cluster):**
+```json
+{
+  "available": false,
+  "runningInCluster": true,
+  "error": "AI Configurator is only available when running KubeFoundry locally"
+}
+```
+
 **Notes:**
 - Status is cached for 5 minutes to avoid repeated CLI calls
 - AI Configurator must be installed locally: https://github.com/ai-dynamo/aiconfigurator
+- When running inside Kubernetes, returns `runningInCluster: true` (AI Configurator is local-only)
 
 ### POST /aiconfigurator/analyze
 Analyze a model + GPU combination and return optimal configuration.

@@ -72,6 +72,11 @@ export function AIConfiguratorPanel({
     }
   }
 
+  // Don't render if running in-cluster (AI Configurator is local-only)
+  if (status?.runningInCluster) {
+    return null
+  }
+
   // Don't render if AI Configurator is not available
   if (!status?.available) {
     return (
