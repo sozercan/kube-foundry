@@ -186,7 +186,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
       // Response body is empty or not valid JSON
       errorMessage = `Request failed with status ${response.status}: ${response.statusText || 'No response body'}`;
     }
-    
+
     console.error('[API] Error response:', errorMessage);
     throw new ApiError(response.status, errorMessage);
   }
@@ -566,5 +566,44 @@ export const aikitApi = {
       builder: { name: string; ready: boolean };
     }>('/aikit/infrastructure/setup', {
       method: 'POST',
+    }),
+};
+
+// ============================================================================
+// AI Configurator API
+// ============================================================================
+
+// Re-export AI Configurator types from shared
+export type {
+  AIConfiguratorInput,
+  AIConfiguratorResult,
+  AIConfiguratorStatus,
+  AIConfiguratorConfig,
+  AIConfiguratorPerformance,
+} from '@kubefoundry/shared';
+
+// Import types for internal use
+import type {
+  AIConfiguratorInput,
+  AIConfiguratorResult,
+  AIConfiguratorStatus,
+} from '@kubefoundry/shared';
+
+export const aiConfiguratorApi = {
+  /** Check if AI Configurator is available */
+  getStatus: () => request<AIConfiguratorStatus>('/aiconfigurator/status'),
+
+  /** Analyze model + GPU and get optimal configuration */
+  analyze: (input: AIConfiguratorInput) =>
+    request<AIConfiguratorResult>('/aiconfigurator/analyze', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  /** Normalize GPU product string to AI Configurator format */
+  normalizeGpu: (gpuProduct: string) =>
+    request<{ gpuProduct: string; normalized: string }>('/aiconfigurator/normalize-gpu', {
+      method: 'POST',
+      body: JSON.stringify({ gpuProduct }),
     }),
 };

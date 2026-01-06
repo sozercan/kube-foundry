@@ -26,6 +26,7 @@ import {
   autoscaler,
   runtimes,
   aikit,
+  aiconfigurator,
 } from './routes';
 
 // Load static files at startup
@@ -126,6 +127,7 @@ app.route('/api/secrets', secrets);
 app.route('/api/autoscaler', autoscaler);
 app.route('/api/runtimes', runtimes);
 app.route('/api/aikit', aikit);
+app.route('/api/aiconfigurator', aiconfigurator);
 
 // Static file serving middleware - uses Bun.file() for zero-copy serving
 app.use('*', async (c, next) => {

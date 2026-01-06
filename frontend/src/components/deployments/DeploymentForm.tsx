@@ -15,9 +15,10 @@ import { usePremadeModels } from '@/hooks/useAikit'
 import { useClusterNodes } from '@/hooks/useClusterStatus'
 import { useToast } from '@/hooks/useToast'
 import { generateDeploymentName, cn } from '@/lib/utils'
-import { type Model, type DetailedClusterCapacity, type AutoscalerDetectionResult, type RuntimeStatus, type PremadeModel, aikitApi, type Engine } from '@/lib/api'
+import { type Model, type DetailedClusterCapacity, type AutoscalerDetectionResult, type RuntimeStatus, type PremadeModel, type AIConfiguratorResult, aikitApi, type Engine } from '@/lib/api'
 import { ChevronDown, AlertCircle, Rocket, CheckCircle2, Sparkles, AlertTriangle, Server, Cpu, Box, Loader2 } from 'lucide-react'
 import { CapacityWarning } from './CapacityWarning'
+import { AIConfiguratorPanel } from './AIConfiguratorPanel'
 import { calculateGpuRecommendation, type GpuRecommendation } from '@/lib/gpu-recommendations'
 
 // Reusable GPU per Replica field component
@@ -27,14 +28,23 @@ interface GpuPerReplicaFieldProps {
   onChange: (value: number) => void
   maxGpus?: number
   recommendation: GpuRecommendation
+  aiConfigRecommended?: number | null
 }
 
-function GpuPerReplicaField({ id, value, onChange, maxGpus = 8, recommendation }: GpuPerReplicaFieldProps) {
+function GpuPerReplicaField({ id, value, onChange, maxGpus = 8, recommendation, aiConfigRecommended }: GpuPerReplicaFieldProps) {
+  const isAiOptimized = aiConfigRecommended != null && value === aiConfigRecommended
+  const isRecommended = value === recommendation.recommendedGpus
+
   return (
     <div className="space-y-2">
       <Label htmlFor={id} className="flex items-center gap-2">
         GPUs per Replica
-        {value === recommendation.recommendedGpus && (
+        {isAiOptimized ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+            <Sparkles className="h-3 w-3" />
+            Optimized
+          </span>
+        ) : isRecommended && (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
             <Sparkles className="h-3 w-3" />
             Recommended
@@ -132,7 +142,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       // Fallback based on model engines
       return model.supportedEngines.includes('llamacpp') ? 'kaito' : 'dynamo';
     }
-    
+
     // Find first compatible and installed runtime
     const compatibleRuntimes: RuntimeId[] = ['dynamo', 'kuberay', 'kaito'];
     for (const rtId of compatibleRuntimes) {
@@ -141,20 +151,33 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
         return rtId;
       }
     }
-    
+
     // If no compatible installed runtime, return first compatible one
     for (const rtId of compatibleRuntimes) {
       if (isRuntimeCompatible(rtId, model.supportedEngines)) {
         return rtId;
       }
     }
-    
+
     return 'dynamo';
   }
 
   const [selectedRuntime, setSelectedRuntime] = useState<RuntimeId>(getDefaultRuntime)
   const selectedRuntimeStatus = runtimes?.find(r => r.id === selectedRuntime)
   const isRuntimeInstalled = selectedRuntimeStatus?.installed ?? false
+
+  // AI Configurator state - tracks supported backends and recommended mode
+  const [aiConfigSupportedBackends, setAiConfigSupportedBackends] = useState<string[] | null>(null)
+  const [aiConfigRecommendedBackend, setAiConfigRecommendedBackend] = useState<string | null>(null)
+  const [aiConfigRecommendedMode, setAiConfigRecommendedMode] = useState<DeploymentMode | null>(null)
+  // Track AI Configurator recommended values for disaggregated mode
+  const [aiConfigRecommendedValues, setAiConfigRecommendedValues] = useState<{
+    prefillReplicas?: number
+    decodeReplicas?: number
+    prefillGpus?: number
+    decodeGpus?: number
+    gpuPerReplica?: number
+  } | null>(null)
 
   // KAITO-specific state
   const [kaitoComputeType, setKaitoComputeType] = useState<KaitoComputeType>('cpu')
@@ -163,20 +186,20 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
   const [ggufFile, setGgufFile] = useState<string>('')
   const [ggufRunMode, setGgufRunMode] = useState<GgufRunMode>('direct')
   const [maxModelLen, setMaxModelLen] = useState<number | undefined>(undefined)
-  
+
   // Fetch cluster nodes for KAITO preferred nodes selection
   const { data: clusterNodesData, isLoading: clusterNodesLoading } = useClusterNodes(selectedRuntime === 'kaito');
   const clusterNodes = clusterNodesData?.nodes || [];
-  
+
   // Check if this is a HuggingFace GGUF model (not a premade model)
   // GGUF models have only llamacpp as supported engine and come from HuggingFace
-  const isHuggingFaceGgufModel = model.supportedEngines.length === 1 && 
+  const isHuggingFaceGgufModel = model.supportedEngines.length === 1 &&
                                   model.supportedEngines[0] === 'llamacpp' &&
                                   !model.id.startsWith('kaito/');
 
   // Check if this is a vLLM-compatible model for KAITO
   // vLLM models have 'vllm' in supported engines but NOT 'llamacpp'
-  const isVllmModel = model.supportedEngines.includes('vllm') && 
+  const isVllmModel = model.supportedEngines.includes('vllm') &&
                       !model.supportedEngines.includes('llamacpp');
 
   // Fetch GGUF files from HuggingFace repo when it's a GGUF model and KAITO is selected
@@ -277,7 +300,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       (e): e is TraditionalEngine => RUNTIME_ENGINES[runtime].includes(e as TraditionalEngine)
     )
     const currentEngineSupported = newAvailableEngines.includes(config.engine as TraditionalEngine)
-    
+
     setConfig(prev => ({
       ...prev,
       provider: runtime,
@@ -306,7 +329,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
       servedModelName: premadeModel.modelName,
     }))
   }, [])
-  
+
   // Use the handler to ensure it's not considered unused
   void handlePremadeModelSelect;
 
@@ -331,7 +354,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
     try {
       // Build the deployment config, adding KAITO-specific fields if needed
       let deployConfig = { ...config }
-      
+
       if (selectedRuntime === 'kaito') {
         if (isHuggingFaceGgufModel) {
           if (ggufRunMode === 'direct') {
@@ -348,44 +371,44 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             }
           } else {
             // Build mode - requires Docker and building an image
-            
+
             // Check if build infrastructure (Docker) is available
             toast({
               title: 'Checking Build Infrastructure',
               description: 'Verifying Docker and build tools are available...',
             })
-            
+
             const infraStatus = await aikitApi.getInfrastructureStatus()
             if (!infraStatus.ready) {
-              const errorMsg = infraStatus.error || 
-                (!infraStatus.builder.running ? 'Docker is not running. Please start Docker and try again.' : 
-                 !infraStatus.registry.ready ? 'Container registry is not available.' : 
+              const errorMsg = infraStatus.error ||
+                (!infraStatus.builder.running ? 'Docker is not running. Please start Docker and try again.' :
+                  !infraStatus.registry.ready ? 'Container registry is not available.' :
                  'Build infrastructure is not ready.')
               throw new Error(errorMsg)
             }
-            
+
             // Build the image first
             toast({
               title: 'Building Image',
               description: `Building GGUF model image for ${model.id}. This may take a few minutes...`,
             })
-            
+
             const buildResult = await aikitApi.build({
               modelSource: 'huggingface',
               modelId: model.id,
               ggufFile: ggufFile,
             })
-            
+
             if (!buildResult.success || !buildResult.imageRef) {
               throw new Error(buildResult.error || 'Failed to build model image')
             }
-            
+
             toast({
               title: 'Image Built Successfully',
               description: `Image: ${buildResult.imageRef}`,
               variant: 'success',
             })
-            
+
             // Use the built image in the deployment config
             deployConfig = {
               ...deployConfig,
@@ -454,6 +477,73 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
     setConfig((prev) => ({ ...prev, [key]: value }))
   }
 
+  // Handler for applying AI Configurator recommendations
+  const handleApplyAIConfig = useCallback((result: AIConfiguratorResult) => {
+    const cfg = result.config
+
+    // Map AI Configurator backend to our engine type
+    const backendToEngine: Record<string, Engine> = {
+      'vllm': 'vllm',
+      'sglang': 'sglang',
+      'trtllm': 'trtllm',
+    }
+    const recommendedEngine = result.backend ? backendToEngine[result.backend] : undefined
+
+    // Store supported backends info for engine selection UI
+    if (result.supportedBackends) {
+      setAiConfigSupportedBackends(result.supportedBackends)
+    }
+    if (result.backend) {
+      setAiConfigRecommendedBackend(result.backend)
+    }
+
+    // Store recommended mode
+    setAiConfigRecommendedMode(result.mode)
+
+    // Store recommended values for badges
+    setAiConfigRecommendedValues({
+      prefillReplicas: cfg.prefillReplicas,
+      decodeReplicas: cfg.decodeReplicas,
+      prefillGpus: cfg.prefillTensorParallel || cfg.tensorParallelDegree,
+      decodeGpus: cfg.decodeTensorParallel || cfg.tensorParallelDegree,
+      gpuPerReplica: cfg.tensorParallelDegree,
+    })
+
+    setConfig(prev => ({
+      ...prev,
+      mode: result.mode,
+      replicas: result.replicas,
+      contextLength: cfg.maxModelLen,
+      // Set engine if AI Configurator recommended one
+      ...(recommendedEngine && { engine: recommendedEngine }),
+      resources: {
+        ...prev.resources,
+        gpu: cfg.tensorParallelDegree,
+      },
+      // Disaggregated mode settings
+      ...(result.mode === 'disaggregated' && {
+        prefillReplicas: cfg.prefillReplicas || 1,
+        decodeReplicas: cfg.decodeReplicas || 1,
+        prefillGpus: cfg.prefillTensorParallel || cfg.tensorParallelDegree,
+        decodeGpus: cfg.decodeTensorParallel || cfg.tensorParallelDegree,
+      }),
+      // Engine args for advanced settings
+      engineArgs: {
+        ...prev.engineArgs,
+        'max-num-batched-tokens': cfg.maxBatchSize,
+        'gpu-memory-utilization': cfg.gpuMemoryUtilization,
+        ...(cfg.maxNumSeqs && { 'max-num-seqs': cfg.maxNumSeqs }),
+      },
+    }))
+
+    const engineInfo = recommendedEngine ? `, Engine=${recommendedEngine.toUpperCase()}` : ''
+    toast({
+      title: 'Configuration Applied',
+      description: `AI Configurator recommendations applied. TP=${cfg.tensorParallelDegree}, Context=${cfg.maxModelLen}${engineInfo}`,
+      variant: 'success',
+    })
+  }, [toast])
+
   // Calculate total GPUs needed for the deployment
   const calculateSelectedGpus = (): number => {
     if (config.mode === 'disaggregated') {
@@ -479,8 +569,8 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
   // For HuggingFace GGUF models, we need a ggufFile for both direct and build modes
   // For vLLM models, we need at least 1 GPU
   // For premade, we need a selected model
-  const isKaitoConfigValid = selectedRuntime !== 'kaito' || 
-    (isHuggingFaceGgufModel 
+  const isKaitoConfigValid = selectedRuntime !== 'kaito' ||
+    (isHuggingFaceGgufModel
       ? ggufFile.endsWith('.gguf')
       : isVllmModel
         ? (config.resources?.gpu || 0) >= 1
@@ -576,10 +666,10 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
               {runtimes.map((runtime) => {
                 const info = RUNTIME_INFO[runtime.id as RuntimeId]
                 if (!info) return null
-                
+
                 const isCompatible = isRuntimeCompatible(runtime.id as RuntimeId, model.supportedEngines)
                 const isSelected = selectedRuntime === runtime.id
-                
+
                 return (
                   <div
                     key={runtime.id}
@@ -609,7 +699,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                     )}
                   >
                     {/* Custom radio indicator */}
-                    <div 
+                    <div
                       className={cn(
                         "mt-1 h-4 w-4 rounded-full border flex items-center justify-center shrink-0",
                         isSelected ? "border-primary" : "border-muted-foreground/50",
@@ -622,7 +712,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                     </div>
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center gap-2">
-                        <span 
+                        <span
                           className={cn(
                             "font-medium text-sm",
                             isCompatible ? "cursor-pointer" : "cursor-not-allowed"
@@ -669,6 +759,22 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* AI Configurator Panel - only show for Dynamo runtime */}
+      {selectedRuntime === 'dynamo' && (
+        <AIConfiguratorPanel
+          modelId={model.id}
+          detailedCapacity={detailedCapacity}
+          onApplyConfig={handleApplyAIConfig}
+          onDiscard={() => {
+            // Clear AI Configurator state when discarding
+            setAiConfigSupportedBackends(null)
+            setAiConfigRecommendedBackend(null)
+            setAiConfigRecommendedMode(null)
+            setAiConfigRecommendedValues(null)
+          }}
+        />
       )}
 
       {/* Basic Configuration */}
@@ -729,22 +835,61 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
               No compatible engines available for this model with {RUNTIME_INFO[selectedRuntime].name}.
             </p>
           ) : (
-            <RadioGroup
-              value={config.engine}
-              onValueChange={(value) => updateConfig('engine', value as Engine)}
-              className="grid gap-4 sm:grid-cols-3"
-            >
-              {availableEngines.map((engine) => (
-                <div key={engine} className="flex items-center space-x-2">
-                  <RadioGroupItem value={engine} id={engine} />
-                  <Label htmlFor={engine} className="cursor-pointer">
-                    {engine === 'vllm' && 'vLLM'}
-                    {engine === 'sglang' && 'SGLang'}
-                    {engine === 'trtllm' && 'TensorRT-LLM'}
-                  </Label>
-                </div>
-              ))}
-            </RadioGroup>
+            <div className="space-y-3">
+              <RadioGroup
+                value={config.engine}
+                onValueChange={(value) => {
+                  // Only allow changing to supported backends if AI Configurator has set restrictions
+                  if (!aiConfigSupportedBackends || aiConfigSupportedBackends.includes(value)) {
+                    updateConfig('engine', value as Engine)
+                  }
+                }}
+                className="grid gap-4 sm:grid-cols-3"
+              >
+                {availableEngines.map((engine) => {
+                  const isUnavailable = aiConfigSupportedBackends !== null && !aiConfigSupportedBackends.includes(engine)
+                  const isRecommended = aiConfigRecommendedBackend === engine
+
+                  return (
+                    <div
+                      key={engine}
+                      className={cn(
+                        "flex items-center space-x-2",
+                        isUnavailable && "opacity-50"
+                      )}
+                    >
+                      <RadioGroupItem
+                        value={engine}
+                        id={engine}
+                        disabled={isUnavailable}
+                      />
+                      <Label
+                        htmlFor={engine}
+                        className={cn(
+                          isUnavailable ? "cursor-not-allowed" : "cursor-pointer",
+                          "flex items-center gap-2"
+                        )}
+                      >
+                        {engine === 'vllm' && 'vLLM'}
+                        {engine === 'sglang' && 'SGLang'}
+                        {engine === 'trtllm' && 'TensorRT-LLM'}
+                        {isRecommended && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            <Sparkles className="h-3 w-3" />
+                            Optimized
+                          </span>
+                        )}
+                      </Label>
+                    </div>
+                  )
+                })}
+              </RadioGroup>
+              {aiConfigSupportedBackends && aiConfigSupportedBackends.length < availableEngines.length && (
+                <p className="text-xs text-muted-foreground">
+                  Some engines are unavailable based on your GPU type. AI Configurator recommends {aiConfigRecommendedBackend?.toUpperCase()}.
+                </p>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -784,7 +929,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                 </div>
               </RadioGroup>
               <p className="text-xs text-muted-foreground">
-                {kaitoComputeType === 'cpu' 
+                  {kaitoComputeType === 'cpu'
                   ? 'Run inference on CPU nodes - slower but no GPU required'
                   : 'Run inference on GPU nodes - faster performance'}
               </p>
@@ -963,8 +1108,14 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             <div className="flex items-start space-x-2">
               <RadioGroupItem value="aggregated" id="mode-aggregated" className="mt-1" />
               <div>
-                <Label htmlFor="mode-aggregated" className="cursor-pointer font-medium">
+                <Label htmlFor="mode-aggregated" className="cursor-pointer font-medium flex items-center gap-2">
                   Aggregated (Standard)
+                  {aiConfigRecommendedMode === 'aggregated' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      <Sparkles className="h-3 w-3" />
+                      Optimized
+                    </span>
+                  )}
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   Combined prefill and decode on same workers
@@ -972,21 +1123,27 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
               </div>
             </div>
             <div className={cn("flex items-start space-x-2", selectedRuntime === 'kaito' && "opacity-50")}>
-              <RadioGroupItem 
-                value="disaggregated" 
-                id="mode-disaggregated" 
-                className="mt-1" 
+                  <RadioGroupItem
+                    value="disaggregated"
+                    id="mode-disaggregated"
+                    className="mt-1"
                 disabled={selectedRuntime === 'kaito'}
               />
               <div>
-                <Label 
-                  htmlFor="mode-disaggregated" 
-                  className={cn("font-medium", selectedRuntime === 'kaito' ? "cursor-not-allowed" : "cursor-pointer")}
+                    <Label
+                      htmlFor="mode-disaggregated"
+                  className={cn("font-medium flex items-center gap-2", selectedRuntime === 'kaito' ? "cursor-not-allowed" : "cursor-pointer")}
                 >
                   Disaggregated (P/D)
+                  {aiConfigRecommendedMode === 'disaggregated' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      <Sparkles className="h-3 w-3" />
+                      Optimized
+                    </span>
+                  )}
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  {selectedRuntime === 'kaito' 
+                      {selectedRuntime === 'kaito'
                     ? 'Separate prefill and decode workers - not supported by KAITO'
                     : 'Separate prefill and decode workers for better resource utilization'}
                 </p>
@@ -1034,6 +1191,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                 }}
                 maxGpus={detailedCapacity?.maxNodeGpuCapacity || 8}
                 recommendation={gpuRecommendation}
+                aiConfigRecommended={aiConfigRecommendedValues?.gpuPerReplica}
               />
 
               {/* Router Mode is only applicable to Dynamo provider */}
@@ -1069,7 +1227,14 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                 <h4 className="font-medium text-sm">Prefill Workers</h4>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="prefillReplicas">Replicas</Label>
+                    <Label htmlFor="prefillReplicas" className="flex items-center gap-2">
+                      Replicas
+                      {aiConfigRecommendedValues?.prefillReplicas === config.prefillReplicas && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          <Sparkles className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                    </Label>
                     <Input
                       id="prefillReplicas"
                       type="number"
@@ -1080,7 +1245,14 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="prefillGpus">GPUs per Worker</Label>
+                    <Label htmlFor="prefillGpus" className="flex items-center gap-2">
+                      GPUs per Worker
+                      {aiConfigRecommendedValues?.prefillGpus === config.prefillGpus && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          <Sparkles className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                    </Label>
                     <Input
                       id="prefillGpus"
                       type="number"
@@ -1098,7 +1270,14 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                 <h4 className="font-medium text-sm">Decode Workers</h4>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="decodeReplicas">Replicas</Label>
+                    <Label htmlFor="decodeReplicas" className="flex items-center gap-2">
+                      Replicas
+                      {aiConfigRecommendedValues?.decodeReplicas === config.decodeReplicas && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          <Sparkles className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                    </Label>
                     <Input
                       id="decodeReplicas"
                       type="number"
@@ -1109,7 +1288,14 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="decodeGpus">GPUs per Worker</Label>
+                    <Label htmlFor="decodeGpus" className="flex items-center gap-2">
+                      GPUs per Worker
+                      {aiConfigRecommendedValues?.decodeGpus === config.decodeGpus && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          <Sparkles className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                    </Label>
                     <Input
                       id="decodeGpus"
                       type="number"

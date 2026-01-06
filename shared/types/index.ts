@@ -6,3 +6,4 @@ export * from './api';
 export * from './huggingface';
 export * from './metrics';
 export * from './autoscaler';
+export * from './aiconfigurator';
