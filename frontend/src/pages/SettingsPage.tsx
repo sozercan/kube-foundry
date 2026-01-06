@@ -41,7 +41,6 @@ import {
   Download,
   RefreshCw,
   Copy,
-  Terminal,
   Zap,
   Trash2,
 } from 'lucide-react'
@@ -152,13 +151,6 @@ export function SettingsPage() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
     toast({ title: 'Copied', description: 'Command copied to clipboard' })
-  }
-
-  const copyAllCommands = () => {
-    if (installationStatus?.helmCommands) {
-      navigator.clipboard.writeText(installationStatus.helmCommands.join('\n'))
-      toast({ title: 'Copied', description: 'All commands copied to clipboard' })
-    }
   }
 
   const isInstalled = installationStatus?.installed ?? false
