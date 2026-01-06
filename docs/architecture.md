@@ -218,7 +218,6 @@ App
 │       ├── DeploymentsPage
 │       ├── DeploymentDetailsPage
 │       ├── SettingsPage
-│       └── InstallationPage
 ```
 
 ### State Management

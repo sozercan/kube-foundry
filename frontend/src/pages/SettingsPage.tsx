@@ -447,7 +447,7 @@ export function SettingsPage() {
                         ? 'Kubernetes AI Toolchain Operator for simplified model deployment'
                         : runtime.id === 'dynamo'
                           ? 'NVIDIA Dynamo for high-performance GPU inference'
-                          : 'KubeRay for distributed Ray-based model serving with vLLM'}
+                          : 'Ray Serve via KubeRay for distributed Ray-based model serving with vLLM'}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -590,42 +590,11 @@ export function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Manual Installation Commands */}
-          {installationStatus?.helmCommands && installationStatus.helmCommands.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="h-5 w-5" />
-                    Manual Installation Commands
-                  </div>
-                  <Button variant="outline" size="sm" onClick={copyAllCommands}>
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copy All
-                  </Button>
-                </CardTitle>
-                <CardDescription>
-                  Run these commands to install the runtime manually
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {installationStatus.helmCommands.map((command, index) => (
-                  <div key={index} className="flex items-center gap-2 rounded-lg bg-muted p-3">
-                    <code className="flex-1 text-sm font-mono overflow-x-auto">{command}</code>
-                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(command)}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
           {/* Installation Steps */}
           {installationStatus?.installationSteps && installationStatus.installationSteps.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Installation Steps</CardTitle>
+                <CardTitle>Manual Installation Steps</CardTitle>
                 <CardDescription>
                   Detailed steps for installing {installationStatus.providerName}
                 </CardDescription>
