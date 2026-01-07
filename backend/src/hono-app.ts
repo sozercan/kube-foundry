@@ -29,22 +29,35 @@ import {
   aiconfigurator,
 } from './routes';
 
-// Load static files at startup
-await loadStaticFiles();
-
-const compiled = isCompiled();
-logger.info(
-  { mode: compiled ? 'compiled' : 'development' },
-  `🔧 Running in ${compiled ? 'compiled binary' : 'development'} mode`
-);
-
 // ============================================================================
-// Main App
+// App Initialization
 // ============================================================================
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
-const app = new Hono();
+const app = new Hono<{
+  Variables: {
+    user?: UserInfo;
+  }
+}>();
+
+// Initialize static files asynchronously
+(async () => {
+  try {
+    await loadStaticFiles();
+    const compiled = isCompiled();
+    logger.info(
+      { mode: compiled ? 'compiled' : 'development' },
+      `🔧 Running in ${compiled ? 'compiled binary' : 'development'} mode`
+    );
+  } catch (error) {
+    logger.error({ error }, 'Failed to load static files');
+  }
+})();
+
+// ============================================================================
+// Main App
+// ============================================================================
 
 // Global middleware
 app.use('*', compress());

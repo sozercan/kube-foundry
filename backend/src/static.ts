@@ -37,7 +37,13 @@ const staticFiles = new Map<string, StaticFile>();
 
 // Check if running as compiled binary
 export const isCompiled = (): boolean => {
-  return import.meta.dir.includes('/$bunfs/') || process.env.BUN_SELF_EXECUTABLE !== undefined;
+  try {
+    // Use type assertion for import.meta in Bun/Node environments
+    const meta = (import.meta as any);
+    return meta?.dir?.includes('/$bunfs/') || process.env.BUN_SELF_EXECUTABLE !== undefined;
+  } catch {
+    return process.env.BUN_SELF_EXECUTABLE !== undefined;
+  }
 };
 
 // Try to load embedded assets (only exists in compiled binary)
@@ -45,14 +51,14 @@ async function loadEmbeddedAssets(): Promise<boolean> {
   try {
     // Dynamic import - this module only exists after running embed-assets.ts
     const { EMBEDDED_ASSETS } = await import('./embedded-assets');
-    
+
     for (const [urlPath, asset] of Object.entries(EMBEDDED_ASSETS)) {
       staticFiles.set(urlPath, {
         path: asset.path,
         contentType: asset.contentType,
       });
     }
-    
+
     logger.info({ count: staticFiles.size }, `Loaded ${staticFiles.size} embedded assets`);
     return true;
   } catch {
@@ -63,14 +69,16 @@ async function loadEmbeddedAssets(): Promise<boolean> {
 
 // Load files from filesystem (development mode)
 async function loadFilesFromDisk(): Promise<boolean> {
-  const staticDir = path.join(import.meta.dir, '../../frontend/dist');
-  
+  // Use type assertion for import.meta compatibility
+  const meta = (import.meta as any);
+  const staticDir = path.join(meta?.dir || __dirname, '../../frontend/dist');
+
   if (!fs.existsSync(staticDir)) {
     logger.warn({ staticDir }, `Frontend build not found: ${staticDir}`);
     logger.warn('Run "bun run build:frontend" to build the frontend.');
     return false;
   }
-  
+
   try {
     await loadFilesFromDir(staticDir, '');
     logger.info({ count: staticFiles.size, staticDir }, `Loaded ${staticFiles.size} static files from ${staticDir}`);
@@ -83,11 +91,11 @@ async function loadFilesFromDisk(): Promise<boolean> {
 
 async function loadFilesFromDir(baseDir: string, prefix: string): Promise<void> {
   const entries = fs.readdirSync(baseDir, { withFileTypes: true });
-  
+
   for (const entry of entries) {
     const fullPath = path.join(baseDir, entry.name);
     const urlPath = prefix ? `${prefix}/${entry.name}` : `/${entry.name}`;
-    
+
     if (entry.isDirectory()) {
       await loadFilesFromDir(fullPath, urlPath);
     } else {
@@ -105,7 +113,7 @@ export const loadStaticFiles = async (): Promise<void> => {
   if (await loadEmbeddedAssets()) {
     return;
   }
-  
+
   // Fall back to filesystem (development mode)
   await loadFilesFromDisk();
 };
@@ -114,21 +122,21 @@ export const loadStaticFiles = async (): Promise<void> => {
 export const getStaticFileResponse = (urlPath: string): Response | undefined => {
   const normalizedPath = urlPath.startsWith('/') ? urlPath : `/${urlPath}`;
   const file = staticFiles.get(normalizedPath);
-  
+
   if (!file) {
     return undefined;
   }
-  
+
   try {
     // Use Bun.file() for zero-copy file serving
     // This works for both filesystem paths and $bunfs internal paths
     const bunFile = Bun.file(file.path);
-    
+
     // Check if file exists (handles test environment and missing files)
     if (bunFile.size === 0 && !fs.existsSync(file.path)) {
       return undefined;
     }
-    
+
     return new Response(bunFile, {
       headers: { 'Content-Type': file.contentType },
     });
@@ -152,11 +160,11 @@ export const hasStaticFiles = (): boolean => {
 export const getStaticFile = (urlPath: string): { content: Buffer; contentType: string } | undefined => {
   const normalizedPath = urlPath.startsWith('/') ? urlPath : `/${urlPath}`;
   const file = staticFiles.get(normalizedPath);
-  
+
   if (!file) {
     return undefined;
   }
-  
+
   // Read file content synchronously (less efficient than getStaticFileResponse)
   const content = fs.readFileSync(file.path);
   return {
