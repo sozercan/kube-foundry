@@ -203,7 +203,7 @@ class ConfigService {
     if (config.defaultNamespace) {
       return config.defaultNamespace;
     }
-    
+
     // Try to use activeProviderId if set (backward compatibility)
     if (config.activeProviderId) {
       const provider = providerRegistry.getProviderOrNull(config.activeProviderId);
@@ -211,7 +211,7 @@ class ConfigService {
         return provider.defaultNamespace;
       }
     }
-    
+
     // Fall back to dynamo's default namespace
     const provider = providerRegistry.getProvider('dynamo');
     return provider.defaultNamespace;

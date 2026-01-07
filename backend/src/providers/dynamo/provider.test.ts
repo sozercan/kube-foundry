@@ -424,7 +424,7 @@ describe('DynamoProvider', () => {
         namespace: 'test-ns',
         modelId: 'meta-llama/Llama-3.2-1B',
         engine: 'vllm',
-        mode: 'aggregated',
+      mode: 'aggregated',
         routerMode: 'none',
         replicas: 1,
         hfTokenSecret: 'hf-token',
@@ -570,7 +570,6 @@ describe('DynamoProvider', () => {
       };
 
       expect(() => provider.generateHTTPRoute!(config)).toThrow('gatewayName and gatewayNamespace are required');
-    });
     });
   });
 });
