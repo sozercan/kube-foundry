@@ -888,6 +888,10 @@ export class KubeRayProvider implements Provider {
     ];
   }
 
+  supportsGAIE(): boolean {
+    return false; // KubeRay does not support Gateway API Inference Extension
+  }
+
   getUninstallResources(): UninstallResources {
     return {
       // KubeRay CRDs

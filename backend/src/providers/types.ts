@@ -69,13 +69,13 @@ export interface UninstallResources {
 export interface Provider {
   /** Unique identifier for the provider (e.g., 'dynamo', 'kuberay') */
   id: string;
-  
+
   /** Display name (e.g., 'NVIDIA Dynamo', 'KubeRay') */
   name: string;
-  
+
   /** Description of the provider */
   description: string;
-  
+
   /** Default Kubernetes namespace for deployments */
   defaultNamespace: string;
 
@@ -152,6 +152,19 @@ export interface Provider {
    * This enables complete cleanup when uninstalling a provider
    */
   getUninstallResources(): UninstallResources;
+
+  /**
+   * Check if provider supports Gateway API Inference Extension (GAIE)
+   * When true, the provider can generate HTTPRoute resources for body-based routing
+   */
+  supportsGAIE(): boolean;
+
+  /**
+   * Generate HTTPRoute manifest for Gateway API Inference Extension
+   * Returns HTTPRoute resource for body-based model routing
+   * Only called if supportsGAIE() returns true and enableGatewayRouting is true
+   */
+  generateHTTPRoute?(config: DeploymentConfig): Record<string, unknown>;
 }
 
 /**
@@ -184,6 +197,9 @@ export const baseDeploymentConfigSchema = z.object({
   enforceEager: z.boolean().default(true),
   enablePrefixCaching: z.boolean().default(false),
   trustRemoteCode: z.boolean().default(false),
+  enableGatewayRouting: z.boolean().default(false),
+  gatewayName: z.string().min(1).optional(),
+  gatewayNamespace: z.string().min(1).optional(),
   resources: z.object({
     gpu: z.number().int().min(1).default(1),
     memory: z.string().optional(),
@@ -195,4 +211,4 @@ export const baseDeploymentConfigSchema = z.object({
   decodeReplicas: z.number().int().min(1).max(10).default(1).describe('Number of decode worker replicas'),
   prefillGpus: z.number().int().min(1).default(1).describe('GPUs per prefill worker'),
   decodeGpus: z.number().int().min(1).default(1).describe('GPUs per decode worker'),
-});
+})

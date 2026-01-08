@@ -11,7 +11,19 @@ export const dynamoDeploymentConfigSchema = baseDeploymentConfigSchema.extend({
   // - vllm: --is-prefill-worker for prefill workers
   // - sglang: --disaggregation-mode prefill|decode
   // - trtllm: --disaggregation-mode prefill|decode
-});
+}).refine(
+  (data) => {
+    // If enableGatewayRouting is true, require gateway configuration
+    if (data.enableGatewayRouting) {
+      return data.gatewayName && data.gatewayNamespace;
+    }
+    return true;
+  },
+  {
+    message: 'gatewayName and gatewayNamespace are required when enableGatewayRouting is true',
+    path: ['enableGatewayRouting'],
+  }
+);
 
 export type DynamoDeploymentConfig = z.infer<typeof dynamoDeploymentConfigSchema>;
 

@@ -71,7 +71,7 @@ class HelmService {
       let stderr = '';
       let timedOut = false;
 
-      logger.debug({ command: this.helmPath, args }, `Executing: ${this.helmPath} ${args.join(' ')}`);
+      logger.info({ command: this.helmPath, args }, `Executing: ${this.helmPath} ${args.join(' ')}`);
 
       const proc = spawn(this.helmPath, args, {
         env: { ...process.env },
@@ -102,7 +102,7 @@ class HelmService {
 
       proc.on('close', (code) => {
         clearTimeout(timeout);
-        
+
         if (timedOut) {
           resolve({
             success: false,
@@ -137,7 +137,7 @@ class HelmService {
    */
   async checkHelmAvailable(): Promise<{ available: boolean; version?: string; error?: string }> {
     const result = await this.execute(['version', '--short']);
-    
+
     if (result.success) {
       return {
         available: true,
@@ -233,7 +233,7 @@ class HelmService {
       if (!existsSync(tempDir)) {
         mkdirSync(tempDir, { recursive: true });
       }
-      
+
       const pullResult = await this.execute(['pull', chart.fetchUrl, '--destination', tempDir], onStream);
       if (!pullResult.success) {
         return pullResult;
@@ -246,9 +246,9 @@ class HelmService {
 
     // Use upgrade --install to handle both fresh installs and existing releases
     const args = ['upgrade', chart.name, chartPath, '--install'];
-    
+
     args.push('--namespace', chart.namespace);
-    
+
     if (chart.createNamespace) {
       args.push('--create-namespace');
     }
@@ -258,7 +258,16 @@ class HelmService {
     }
 
     if (chart.values) {
-      args.push('--set-json', JSON.stringify(chart.values));
+      for (const [key, value] of Object.entries(chart.values)) {
+        // If this isn't an object (or array), we can use --set
+        if (typeof value !== 'object'){
+          args.push('--set-string', `${key}=${value}`);
+          continue
+        }
+        // For objects/arrays, use --set-json
+        // NOTE: This only works for keys that are nested 1 level deep
+        args.push('--set-json', `${key}=${JSON.stringify(value)}`);
+      }
     }
 
     // Don't use --wait - return immediately after submitting the install
@@ -276,9 +285,9 @@ class HelmService {
     onStream?: StreamCallback
   ): Promise<HelmResult> {
     const args = ['upgrade', chart.name, chart.chart, '--install'];
-    
+
     args.push('--namespace', chart.namespace);
-    
+
     if (chart.createNamespace) {
       args.push('--create-namespace');
     }

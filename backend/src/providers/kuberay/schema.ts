@@ -39,7 +39,19 @@ export const kuberayDeploymentConfigSchema = baseDeploymentConfigSchema.extend({
   prefillMaxReplicas: z.number().int().min(1).default(2).describe('Maximum prefill worker replicas'),
   decodeMinReplicas: z.number().int().min(1).default(1).describe('Minimum decode worker replicas'),
   decodeMaxReplicas: z.number().int().min(1).default(2).describe('Maximum decode worker replicas'),
-});
+}).refine(
+  (data) => {
+    // If enableGatewayRouting is true, require gateway configuration
+    if (data.enableGatewayRouting) {
+      return data.gatewayName && data.gatewayNamespace;
+    }
+    return true;
+  },
+  {
+    message: 'gatewayName and gatewayNamespace are required when enableGatewayRouting is true',
+    path: ['enableGatewayRouting'],
+  }
+);;
 
 export type KubeRayDeploymentConfig = z.infer<typeof kuberayDeploymentConfigSchema>;
 

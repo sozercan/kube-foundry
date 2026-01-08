@@ -1,11 +1,13 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Box, Layers, Settings, X } from 'lucide-react'
+import { Box, Layers, Settings, X, Network, Route } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
 const navigation = [
   { name: 'Models', href: '/', icon: Box },
   { name: 'Deployments', href: '/deployments', icon: Layers },
+  { name: 'InferencePools', href: '/inferencepools', icon: Network },
+  { name: 'HTTPRoutes', href: '/httproutes', icon: Route },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -29,7 +31,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <img src="/logo.png" alt="KubeFoundry" className="h-8 w-8" />
           <span className="text-xl font-bold text-foreground">KubeFoundry</span>
         </Link>
-        
+
         {/* Close button - mobile only */}
         {onNavigate && (
           <Button

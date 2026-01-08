@@ -7,6 +7,8 @@ import { DeploymentDetailsPage } from './pages/DeploymentDetailsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { LoginPage } from './pages/LoginPage'
 import { HuggingFaceCallbackPage } from './pages/HuggingFaceCallbackPage'
+import { InferencePoolsPage } from './pages/InferencePoolsPage'
+import { HTTPRoutesPage } from './pages/HTTPRoutesPage'
 import { Toaster } from './components/ui/toaster'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './hooks/useAuth'
@@ -49,10 +51,10 @@ function AppRoutes() {
     <Routes>
       {/* Login page - always accessible */}
       <Route path="/login" element={<LoginPage />} />
-      
+
       {/* OAuth callback - always accessible (handles auth flow) */}
       <Route path="/oauth/callback/huggingface" element={<HuggingFaceCallbackPage />} />
-      
+
       {/* Protected routes */}
       <Route
         path="/"
@@ -90,6 +92,26 @@ function AppRoutes() {
           <ProtectedRoute>
             <MainLayout>
               <DeploymentDetailsPage />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/inferencepools"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <InferencePoolsPage />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/httproutes"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <HTTPRoutesPage />
             </MainLayout>
           </ProtectedRoute>
         }

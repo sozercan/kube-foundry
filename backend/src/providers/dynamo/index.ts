@@ -863,6 +863,66 @@ export class DynamoProvider implements Provider {
     ];
   }
 
+  supportsGAIE(): boolean {
+    return true; // Dynamo supports Gateway API Inference Extension
+  }
+
+  generateHTTPRoute(config: DeploymentConfig): Record<string, unknown> {
+    const modelName = config.servedModelName || config.modelId;
+    
+    if (!config.gatewayName || !config.gatewayNamespace) {
+      throw new Error('gatewayName and gatewayNamespace are required when enableGatewayRouting is true');
+    }
+    
+    // Dynamo convention: InferencePool name is based on deployment name with -pool suffix
+    const inferencePoolName = `${config.name}-pool`;
+    
+    return {
+      apiVersion: 'gateway.networking.k8s.io/v1',
+      kind: 'HTTPRoute',
+      metadata: {
+        name: `${config.name}-route`,
+        namespace: config.namespace,
+        labels: {
+          'app.kubernetes.io/name': 'kubefoundry',
+          'app.kubernetes.io/instance': config.name,
+          'app.kubernetes.io/managed-by': 'kubefoundry',
+          'kubefoundry.io/provider': 'dynamo',
+        },
+      },
+      spec: {
+        parentRefs: [
+          {
+            name: config.gatewayName,
+            namespace: config.gatewayNamespace,
+          },
+        ],
+        rules: [
+          {
+            matches: [
+              {
+                headers: [
+                  {
+                    type: 'Exact',
+                    name: 'X-Gateway-Model-Name',
+                    value: modelName,
+                  },
+                ],
+              },
+            ],
+            backendRefs: [
+              {
+                group: 'inference.networking.k8s.io',
+                kind: 'InferencePool',
+                name: inferencePoolName,
+              },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
   getUninstallResources(): UninstallResources {
     return {
       // Dynamo CRDs installed by dynamo-crds chart

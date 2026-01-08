@@ -6,7 +6,7 @@ import { aikitService, GGUF_RUNNER_IMAGE } from '../../services/aikit';
 import logger from '../../lib/logger';
 
 // Hardcoded KAITO version
-const KAITO_VERSION = '0.6.0';
+const KAITO_VERSION = '0.7.0';
 
 // KAITO base image for vLLM mode
 const KAITO_BASE_IMAGE = 'mcr.microsoft.com/aks/kaito/kaito-base:0.1.1';
@@ -18,7 +18,7 @@ const VLLM_PORT = 8000;
 /**
  * KAITO Provider
  * Implements the Provider interface for KAITO (Kubernetes AI Toolchain Operator)
- * 
+ *
  * KAITO's key differentiator is CPU-capable inference using GGUF quantized models
  * built with AIKit. This enables running LLMs without GPU nodes.
  */
@@ -146,7 +146,7 @@ export class KaitoProvider implements Provider {
    */
   private generateVllmManifest(config: KaitoDeploymentConfig): Record<string, unknown> {
     const gpuCount = config.resources?.gpu || 1;
-    
+
     logger.debug(
       { name: config.name, modelId: config.modelId, gpuCount, maxModelLen: config.maxModelLen },
       'Generating vLLM KAITO Workspace manifest'
@@ -170,7 +170,7 @@ export class KaitoProvider implements Provider {
 
     // Build environment variables
     const env: Array<Record<string, unknown>> = [];
-    
+
     // Add HF_TOKEN if gated model (hfTokenSecret is set)
     if (config.hfTokenSecret) {
       env.push({
@@ -386,7 +386,7 @@ export class KaitoProvider implements Provider {
     // Extract model ID and determine engine based on model source
     let modelId = imageRef;
     let engine: 'llamacpp' | 'vllm' = 'llamacpp';  // Default to llamacpp
-    
+
     if (modelSource === 'vllm' || imageRef === KAITO_BASE_IMAGE) {
       // vLLM mode - extract model from --model arg
       engine = 'vllm';
@@ -414,7 +414,7 @@ export class KaitoProvider implements Provider {
     // Map KAITO phase to our DeploymentPhase
     // KAITO may not set phase directly, so also check conditions
     let phase = this.mapPhase(status.phase);
-    
+
     // If phase is Pending but WorkspaceSucceeded condition is True, it's actually Running
     const workspaceSucceeded = (status.conditions || []).find(c => c.type === 'WorkspaceSucceeded');
     const inferenceReady = (status.conditions || []).find(c => c.type === 'InferenceReady');
@@ -538,7 +538,7 @@ export class KaitoProvider implements Provider {
       },
       {
         title: 'Install KAITO Workspace Operator',
-        command: `helm upgrade --install kaito-workspace kaito/workspace --version ${KAITO_VERSION} -n kaito-workspace --create-namespace --wait`,
+        command: `helm upgrade --install kaito-workspace kaito/workspace --version ${KAITO_VERSION} --set featureGates.gatewayAPIInferenceExtension=true --set featureGates.enableInferenceSetController=true -n kaito-workspace --create-namespace --wait `,
         description: `Install the KAITO workspace operator v${KAITO_VERSION} which manages AI workloads.`,
       },
     ];
@@ -561,6 +561,11 @@ export class KaitoProvider implements Provider {
         version: KAITO_VERSION,
         namespace: 'kaito-workspace',
         createNamespace: true,
+        values: {
+          featureGates: {
+            gatewayAPIInferenceExtension: true,
+          },
+        },
       },
     ];
   }
@@ -750,6 +755,66 @@ export class KaitoProvider implements Provider {
         category: 'throughput',
       },
     ];
+  }
+
+  supportsGAIE(): boolean {
+    return true; // KAITO supports Gateway API Inference Extension
+  }
+
+  generateHTTPRoute(config: DeploymentConfig): Record<string, unknown> {
+    const modelName = config.servedModelName || config.modelId;
+
+    if (!config.gatewayName || !config.gatewayNamespace) {
+      throw new Error('gatewayName and gatewayNamespace are required when enableGatewayRouting is true');
+    }
+
+    // KAITO convention: InferencePool name is based on workspace/deployment name with -pool suffix
+    const inferencePoolName = `${config.name}-pool`;
+
+    return {
+      apiVersion: 'gateway.networking.k8s.io/v1',
+      kind: 'HTTPRoute',
+      metadata: {
+        name: `${config.name}-route`,
+        namespace: config.namespace,
+        labels: {
+          'app.kubernetes.io/name': 'kubefoundry',
+          'app.kubernetes.io/instance': config.name,
+          'app.kubernetes.io/managed-by': 'kubefoundry',
+          'kubefoundry.io/provider': 'kaito',
+        },
+      },
+      spec: {
+        parentRefs: [
+          {
+            name: config.gatewayName,
+            namespace: config.gatewayNamespace,
+          },
+        ],
+        rules: [
+          {
+            matches: [
+              {
+                headers: [
+                  {
+                    type: 'Exact',
+                    name: 'X-Gateway-Model-Name',
+                    value: modelName,
+                  },
+                ],
+              },
+            ],
+            backendRefs: [
+              {
+                group: 'inference.networking.k8s.io',
+                kind: 'InferencePool',
+                name: inferencePoolName,
+              },
+            ],
+          },
+        ],
+      },
+    };
   }
 
   getUninstallResources(): UninstallResources {
