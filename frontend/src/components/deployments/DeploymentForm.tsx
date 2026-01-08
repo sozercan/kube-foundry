@@ -194,13 +194,13 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
   // Check if this is a HuggingFace GGUF model (not a premade model)
   // GGUF models have only llamacpp as supported engine and come from HuggingFace
   const isHuggingFaceGgufModel = model.supportedEngines.length === 1 &&
-                                  model.supportedEngines[0] === 'llamacpp' &&
-                                  !model.id.startsWith('kaito/');
+    model.supportedEngines[0] === 'llamacpp' &&
+    !model.id.startsWith('kaito/');
 
   // Check if this is a vLLM-compatible model for KAITO
   // vLLM models have 'vllm' in supported engines but NOT 'llamacpp'
   const isVllmModel = model.supportedEngines.includes('vllm') &&
-                      !model.supportedEngines.includes('llamacpp');
+    !model.supportedEngines.includes('llamacpp');
 
   // Fetch GGUF files from HuggingFace repo when it's a GGUF model and KAITO is selected
   const { data: ggufFilesData, isLoading: ggufFilesLoading } = useGgufFiles(
@@ -383,7 +383,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
               const errorMsg = infraStatus.error ||
                 (!infraStatus.builder.running ? 'Docker is not running. Please start Docker and try again.' :
                   !infraStatus.registry.ready ? 'Container registry is not available.' :
-                 'Build infrastructure is not ready.')
+                    'Build infrastructure is not ready.')
               throw new Error(errorMsg)
             }
 
@@ -627,786 +627,834 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
     <>
       <ConfettiComponent count={60} />
       <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-      {/* Gated Model Warning */}
-      {needsHfAuth && (
-        <div className="rounded-lg bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <h3 className="font-medium text-yellow-800 dark:text-yellow-200">
-                HuggingFace Authentication Required
-              </h3>
-              <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                <strong>{model.name}</strong> is a gated model that requires HuggingFace authentication.
-                Please{' '}
+        {/* Gated Model Warning */}
+        {needsHfAuth && (
+          <div className="rounded-lg bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="font-medium text-yellow-800 dark:text-yellow-200">
+                  HuggingFace Authentication Required
+                </h3>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                  <strong>{model.name}</strong> is a gated model that requires HuggingFace authentication.
+                  Please{' '}
                   <a
                     href="/settings"
-                  className="underline font-medium hover:text-yellow-900 dark:hover:text-yellow-100"
-                >
-                  sign in with HuggingFace
-                </a>{' '}
-                in Settings before deploying.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Runtime Selection */}
-      {runtimes && runtimes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
-              Runtime
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {runtimes.map((runtime) => {
-                const info = RUNTIME_INFO[runtime.id as RuntimeId]
-                if (!info) return null
-
-                const isCompatible = isRuntimeCompatible(runtime.id as RuntimeId, model.supportedEngines)
-                const isSelected = selectedRuntime === runtime.id
-
-                return (
-                  <div
-                    key={runtime.id}
-                    role="radio"
-                    aria-checked={isSelected}
-                    tabIndex={isCompatible ? 0 : -1}
-                    onClick={() => {
-                      if (isCompatible) {
-                        handleRuntimeChange(runtime.id as RuntimeId)
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (isCompatible && (e.key === 'Enter' || e.key === ' ')) {
-                        e.preventDefault()
-                        handleRuntimeChange(runtime.id as RuntimeId)
-                      }
-                    }}
-                    className={cn(
-                      "relative flex items-start space-x-3 rounded-lg border p-4 transition-colors",
-                      !isCompatible && "opacity-50 cursor-not-allowed",
-                      isCompatible && "cursor-pointer",
-                      isCompatible && isSelected
-                        ? "border-primary bg-primary/5"
-                        : "border-border",
-                      isCompatible && !isSelected && "hover:border-muted-foreground/50",
-                      isCompatible && !runtime.installed && "opacity-75"
-                    )}
+                    className="underline font-medium hover:text-yellow-900 dark:hover:text-yellow-100"
                   >
-                    {/* Custom radio indicator */}
-                    <div
-                      className={cn(
-                        "mt-1 h-4 w-4 rounded-full border flex items-center justify-center shrink-0",
-                        isSelected ? "border-primary" : "border-muted-foreground/50",
-                        !isCompatible && "opacity-50"
-                      )}
-                    >
-                      {isSelected && (
-                        <div className="h-2.5 w-2.5 rounded-full bg-primary" />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "font-medium text-sm",
-                            isCompatible ? "cursor-pointer" : "cursor-not-allowed"
-                          )}
-                        >
-                          {info.name}
-                        </span>
-                        {!isCompatible ? (
-                          <Badge variant="outline" className="text-muted-foreground border-muted text-xs">
-                            Not Compatible
-                          </Badge>
-                        ) : runtime.installed ? (
-                          <Badge variant="outline" className="text-green-600 border-green-500 text-xs">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                            Installed
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-yellow-600 border-yellow-500 text-xs">
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Not Installed
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {info.description}
-                      </p>
-                      {!isCompatible && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          This model requires {model.supportedEngines.includes('llamacpp') ? 'llama.cpp' : model.supportedEngines.join('/')} which is not supported by this runtime.
-                        </p>
-                      )}
-                      {isCompatible && !runtime.installed && isSelected && (
-                        <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
-                          <Link to="/installation" className="underline hover:no-underline">
-                            Install {info.name}
-                          </Link>{' '}
-                          before deploying.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* AI Configurator Panel - only show for Dynamo runtime */}
-      {selectedRuntime === 'dynamo' && (
-        <AIConfiguratorPanel
-          modelId={model.id}
-          detailedCapacity={detailedCapacity}
-          onApplyConfig={handleApplyAIConfig}
-          onDiscard={() => {
-            // Clear AI Configurator state when discarding
-            setAiConfigSupportedBackends(null)
-            setAiConfigRecommendedBackend(null)
-            setAiConfigRecommendedMode(null)
-            setAiConfigRecommendedValues(null)
-          }}
-        />
-      )}
-
-      {/* Basic Configuration */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Basic Configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="name">Deployment Name</Label>
-              <Input
-                id="name"
-                value={config.name}
-                onChange={(e) => updateConfig('name', e.target.value)}
-                placeholder="my-deployment"
-                required
-                pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-              />
-              <p className="text-xs text-muted-foreground">
-                Lowercase letters, numbers, and hyphens only
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="namespace">Namespace</Label>
-              <Input
-                id="namespace"
-                value={config.namespace}
-                onChange={(e) => updateConfig('namespace', e.target.value)}
-                placeholder={RUNTIME_INFO[selectedRuntime].defaultNamespace}
-                required
-              />
+                    sign in with HuggingFace
+                  </a>{' '}
+                  in Settings before deploying.
+                </p>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
 
-      {/* Engine Selection - show for non-KAITO runtimes OR KAITO with vLLM models */}
-      {(selectedRuntime !== 'kaito' || isVllmModel) && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Inference Engine</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {selectedRuntime === 'kaito' && isVllmModel ? (
-            // KAITO vLLM - only vLLM option
-            <RadioGroup value="vllm" className="flex gap-4">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="vllm" id="engine-vllm" />
-                <Label htmlFor="engine-vllm" className="cursor-pointer">
-                  vLLM
-                </Label>
-              </div>
-            </RadioGroup>
-          ) : availableEngines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No compatible engines available for this model with {RUNTIME_INFO[selectedRuntime].name}.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              <RadioGroup
-                value={config.engine}
-                onValueChange={(value) => {
-                  // Only allow changing to supported backends if AI Configurator has set restrictions
-                  if (!aiConfigSupportedBackends || aiConfigSupportedBackends.includes(value)) {
-                    updateConfig('engine', value as Engine)
-                  }
-                }}
-                className="grid gap-4 sm:grid-cols-3"
-              >
-                {availableEngines.map((engine) => {
-                  const isUnavailable = aiConfigSupportedBackends !== null && !aiConfigSupportedBackends.includes(engine)
-                  const isRecommended = aiConfigRecommendedBackend === engine
+        {/* Runtime Selection */}
+        {runtimes && runtimes.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Server className="h-5 w-5" />
+                Runtime
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {runtimes.map((runtime) => {
+                  const info = RUNTIME_INFO[runtime.id as RuntimeId]
+                  if (!info) return null
+
+                  const isCompatible = isRuntimeCompatible(runtime.id as RuntimeId, model.supportedEngines)
+                  const isSelected = selectedRuntime === runtime.id
 
                   return (
                     <div
-                      key={engine}
+                      key={runtime.id}
+                      role="radio"
+                      aria-checked={isSelected}
+                      tabIndex={isCompatible ? 0 : -1}
+                      onClick={() => {
+                        if (isCompatible) {
+                          handleRuntimeChange(runtime.id as RuntimeId)
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (isCompatible && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault()
+                          handleRuntimeChange(runtime.id as RuntimeId)
+                        }
+                      }}
                       className={cn(
-                        "flex items-center space-x-2",
-                        isUnavailable && "opacity-50"
+                        "relative flex items-start space-x-3 rounded-lg border p-4 transition-colors",
+                        !isCompatible && "opacity-50 cursor-not-allowed",
+                        isCompatible && "cursor-pointer",
+                        isCompatible && isSelected
+                          ? "border-primary bg-primary/5"
+                          : "border-border",
+                        isCompatible && !isSelected && "hover:border-muted-foreground/50",
+                        isCompatible && !runtime.installed && "opacity-75"
                       )}
                     >
-                      <RadioGroupItem
-                        value={engine}
-                        id={engine}
-                        disabled={isUnavailable}
-                      />
-                      <Label
-                        htmlFor={engine}
+                      {/* Custom radio indicator */}
+                      <div
                         className={cn(
-                          isUnavailable ? "cursor-not-allowed" : "cursor-pointer",
-                          "flex items-center gap-2"
+                          "mt-1 h-4 w-4 rounded-full border flex items-center justify-center shrink-0",
+                          isSelected ? "border-primary" : "border-muted-foreground/50",
+                          !isCompatible && "opacity-50"
                         )}
                       >
-                        {engine === 'vllm' && 'vLLM'}
-                        {engine === 'sglang' && 'SGLang'}
-                        {engine === 'trtllm' && 'TensorRT-LLM'}
-                        {isRecommended && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                            <Sparkles className="h-3 w-3" />
-                            Optimized
-                          </span>
+                        {isSelected && (
+                          <div className="h-2.5 w-2.5 rounded-full bg-primary" />
                         )}
-                      </Label>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              "font-medium text-sm",
+                              isCompatible ? "cursor-pointer" : "cursor-not-allowed"
+                            )}
+                          >
+                            {info.name}
+                          </span>
+                          {!isCompatible ? (
+                            <Badge variant="outline" className="text-muted-foreground border-muted text-xs">
+                              Not Compatible
+                            </Badge>
+                          ) : runtime.installed ? (
+                            <Badge variant="outline" className="text-green-600 border-green-500 text-xs">
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                              Installed
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-yellow-600 border-yellow-500 text-xs">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Not Installed
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {info.description}
+                        </p>
+                        {!isCompatible && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            This model requires {model.supportedEngines.includes('llamacpp') ? 'llama.cpp' : model.supportedEngines.join('/')} which is not supported by this runtime.
+                          </p>
+                        )}
+                        {isCompatible && !runtime.installed && isSelected && (
+                          <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
+                            <Link to="/installation" className="underline hover:no-underline">
+                              Install {info.name}
+                            </Link>{' '}
+                            before deploying.
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
-              </RadioGroup>
-              {aiConfigSupportedBackends && aiConfigSupportedBackends.length < availableEngines.length && (
-                <p className="text-xs text-muted-foreground">
-                  Some engines are unavailable based on your GPU type. AI Configurator recommends {aiConfigRecommendedBackend?.toUpperCase()}.
-                </p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-      {/* KAITO Model Configuration - only show for KAITO runtime with non-vLLM models */}
-      {selectedRuntime === 'kaito' && !isVllmModel && (
+        {/* AI Configurator Panel - only show for Dynamo runtime */}
+        {selectedRuntime === 'dynamo' && (
+          <AIConfiguratorPanel
+            modelId={model.id}
+            detailedCapacity={detailedCapacity}
+            onApplyConfig={handleApplyAIConfig}
+            onDiscard={() => {
+              // Clear AI Configurator state when discarding
+              setAiConfigSupportedBackends(null)
+              setAiConfigRecommendedBackend(null)
+              setAiConfigRecommendedMode(null)
+              setAiConfigRecommendedValues(null)
+            }}
+          />
+        )}
+
+        {/* Basic Configuration */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Box className="h-5 w-5" />
-              KAITO Model Configuration
-            </CardTitle>
+            <CardTitle>Basic Configuration</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Compute Type Selection - only for non-vLLM models (vLLM always requires GPU) */}
-            <div className="space-y-3">
-              <Label>Compute Type</Label>
-              <RadioGroup
-                value={kaitoComputeType}
-                onValueChange={(value) => setKaitoComputeType(value as KaitoComputeType)}
-                className="flex gap-4"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="cpu" id="compute-cpu" />
-                  <Label htmlFor="compute-cpu" className="cursor-pointer flex items-center gap-1">
-                    <Cpu className="h-4 w-4" />
-                    CPU
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="gpu" id="compute-gpu" />
-                  <Label htmlFor="compute-gpu" className="cursor-pointer flex items-center gap-1">
-                    <Server className="h-4 w-4" />
-                    GPU
-                  </Label>
-                </div>
-              </RadioGroup>
-              <p className="text-xs text-muted-foreground">
-                  {kaitoComputeType === 'cpu'
-                  ? 'Run inference on CPU nodes - slower but no GPU required'
-                  : 'Run inference on GPU nodes - faster performance'}
-              </p>
-            </div>
-
-            {/* Run Mode Selection - only for HuggingFace GGUF models */}
-            {isHuggingFaceGgufModel && (
-              <div className="space-y-3">
-                <Label>Run Mode</Label>
-                <RadioGroup
-                  value={ggufRunMode}
-                  onValueChange={(value) => setGgufRunMode(value as GgufRunMode)}
-                  className="grid gap-3"
-                >
-                  <label
-                    htmlFor="run-direct"
-                    className={cn(
-                      "flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors",
-                      ggufRunMode === 'direct'
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-muted-foreground/50"
-                    )}
-                  >
-                    <RadioGroupItem value="direct" id="run-direct" className="mt-1" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">Direct Run</span>
-                        <Badge variant="secondary" className="text-xs">Recommended</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Downloads model at runtime. No Docker required.
-                      </p>
-                    </div>
-                  </label>
-                  <label
-                    htmlFor="run-build"
-                    className={cn(
-                      "flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors",
-                      ggufRunMode === 'build'
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-muted-foreground/50"
-                    )}
-                  >
-                    <RadioGroupItem value="build" id="run-build" className="mt-1" />
-                    <div className="flex-1">
-                      <span className="font-medium">Build Image</span>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Pre-builds container image. Requires Docker running locally.
-                      </p>
-                    </div>
-                  </label>
-                </RadioGroup>
-              </div>
-            )}
-
-            {/* Preferred Nodes Selection */}
-            <div className="space-y-3">
-              <Label>Preferred Nodes (Optional)</Label>
-              {clusterNodesLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading cluster nodes...
-                </div>
-              ) : clusterNodes.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-2">
-                    {clusterNodes.map((node) => {
-                      const isSelected = preferredNodes.includes(node.name)
-                      return (
-                        <button
-                          key={node.name}
-                          type="button"
-                          onClick={() => {
-                            if (isSelected) {
-                              setPreferredNodes(preferredNodes.filter(n => n !== node.name))
-                            } else {
-                              setPreferredNodes([...preferredNodes, node.name])
-                            }
-                          }}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm border transition-colors",
-                            isSelected
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-background hover:bg-accent border-input"
-                          )}
-                        >
-                          <span>{node.name}</span>
-                          {node.gpuCount > 0 && (
-                            <Badge variant="secondary" className="text-xs px-1 py-0">
-                              {node.gpuCount} GPU{node.gpuCount > 1 ? 's' : ''}
-                            </Badge>
-                          )}
-                          {!node.ready && (
-                            <Badge variant="destructive" className="text-xs px-1 py-0">
-                              Not Ready
-                            </Badge>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {preferredNodes.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setPreferredNodes([])}
-                      className="text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      Clear selection
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground py-2">
-                  No schedulable nodes found in the cluster.
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Select nodes to prefer for this deployment.
-                If none selected, KAITO will schedule on any available node matching the label selector.
-              </p>
-            </div>
-
-            {/* GGUF File Selection - for HuggingFace GGUF models */}
-            {isHuggingFaceGgufModel && (
-              <div className="space-y-3">
-                <Label htmlFor="ggufFile">GGUF File</Label>
-                {ggufFilesLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading GGUF files from repository...
-                  </div>
-                ) : ggufFiles.length > 0 ? (
-                  <Select value={ggufFile} onValueChange={setGgufFile}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a GGUF file" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ggufFiles.map((file) => (
-                        <SelectItem key={file} value={file}>
-                          {file}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="text-sm text-muted-foreground py-2">
-                    No GGUF files found in this repository.
-                  </div>
-                )}
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="name">Deployment Name</Label>
+                <Input
+                  id="name"
+                  value={config.name}
+                  onChange={(e) => updateConfig('name', e.target.value)}
+                  placeholder="my-deployment"
+                  required
+                  pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                />
                 <p className="text-xs text-muted-foreground">
-                  Select the quantization variant to use. Q4_K_M offers a good balance of quality and size.
+                  Lowercase letters, numbers, and hyphens only
                 </p>
               </div>
-            )}
+
+              <div className="space-y-2">
+                <Label htmlFor="namespace">Namespace</Label>
+                <Input
+                  id="namespace"
+                  value={config.namespace}
+                  onChange={(e) => updateConfig('namespace', e.target.value)}
+                  placeholder={RUNTIME_INFO[selectedRuntime].defaultNamespace}
+                  required
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
-      )}
 
-      {/* Deployment Mode - show for non-KAITO runtimes OR KAITO with vLLM models */}
-      {(selectedRuntime !== 'kaito' || isVllmModel) && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Deployment Mode</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <RadioGroup
-            value={config.mode}
-            onValueChange={(value) => {
-              // Only allow changing mode for non-KAITO runtimes
-              if (selectedRuntime !== 'kaito') {
-                updateConfig('mode', value as DeploymentMode)
-              }
-            }}
-            className="grid gap-4 sm:grid-cols-2"
-          >
-            <div className="flex items-start space-x-2">
-              <RadioGroupItem value="aggregated" id="mode-aggregated" className="mt-1" />
-              <div>
-                <Label htmlFor="mode-aggregated" className="cursor-pointer font-medium flex items-center gap-2">
-                  Aggregated (Standard)
-                  {aiConfigRecommendedMode === 'aggregated' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      <Sparkles className="h-3 w-3" />
-                      Optimized
-                    </span>
-                  )}
-                </Label>
+        {/* Gateway Routing - only for Dynamo and KAITO providers */}
+        {(selectedRuntime === 'dynamo' || selectedRuntime === 'kaito') && (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Enable Gateway Routing</Label>
                 <p className="text-xs text-muted-foreground">
-                  Combined prefill and decode on same workers
+                  Route requests through Gateway API with intelligent model selection
                 </p>
               </div>
+              <Switch
+                checked={config.enableGatewayRouting || false}
+                onCheckedChange={(checked) => updateConfig('enableGatewayRouting', checked)}
+              />
             </div>
-            <div className={cn("flex items-start space-x-2", selectedRuntime === 'kaito' && "opacity-50")}>
+
+            {config.enableGatewayRouting && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="gatewayName">Gateway Name *</Label>
+                  <Input
+                    id="gatewayName"
+                    value={config.gatewayName || ''}
+                    onChange={(e) => updateConfig('gatewayName', e.target.value)}
+                    placeholder="inference-gateway"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="gatewayNamespace">Gateway Namespace *</Label>
+                  <Input
+                    id="gatewayNamespace"
+                    value={config.gatewayNamespace || ''}
+                    onChange={(e) => updateConfig('gatewayNamespace', e.target.value)}
+                    placeholder="gateway-system"
+                  />
+                </div>
+
+                <div className="rounded-lg border bg-muted/50 p-3">
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Assuming InferencePool will be created by KAITO:</strong> {config.name ? `${config.name}-pool` : 'deployment-name-pool'}
+                  </p>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* Engine Selection - show for non-KAITO runtimes OR KAITO with vLLM models */}
+        {(selectedRuntime !== 'kaito' || isVllmModel) && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Inference Engine</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {selectedRuntime === 'kaito' && isVllmModel ? (
+                // KAITO vLLM - only vLLM option
+                <RadioGroup value="vllm" className="flex gap-4">
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="vllm" id="engine-vllm" />
+                    <Label htmlFor="engine-vllm" className="cursor-pointer">
+                      vLLM
+                    </Label>
+                  </div>
+                </RadioGroup>
+              ) : availableEngines.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No compatible engines available for this model with {RUNTIME_INFO[selectedRuntime].name}.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <RadioGroup
+                    value={config.engine}
+                    onValueChange={(value) => {
+                      // Only allow changing to supported backends if AI Configurator has set restrictions
+                      if (!aiConfigSupportedBackends || aiConfigSupportedBackends.includes(value)) {
+                        updateConfig('engine', value as Engine)
+                      }
+                    }}
+                    className="grid gap-4 sm:grid-cols-3"
+                  >
+                    {availableEngines.map((engine) => {
+                      const isUnavailable = aiConfigSupportedBackends !== null && !aiConfigSupportedBackends.includes(engine)
+                      const isRecommended = aiConfigRecommendedBackend === engine
+
+                      return (
+                        <div
+                          key={engine}
+                          className={cn(
+                            "flex items-center space-x-2",
+                            isUnavailable && "opacity-50"
+                          )}
+                        >
+                          <RadioGroupItem
+                            value={engine}
+                            id={engine}
+                            disabled={isUnavailable}
+                          />
+                          <Label
+                            htmlFor={engine}
+                            className={cn(
+                              isUnavailable ? "cursor-not-allowed" : "cursor-pointer",
+                              "flex items-center gap-2"
+                            )}
+                          >
+                            {engine === 'vllm' && 'vLLM'}
+                            {engine === 'sglang' && 'SGLang'}
+                            {engine === 'trtllm' && 'TensorRT-LLM'}
+                            {isRecommended && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                <Sparkles className="h-3 w-3" />
+                                Optimized
+                              </span>
+                            )}
+                          </Label>
+                        </div>
+                      )
+                    })}
+                  </RadioGroup>
+                  {aiConfigSupportedBackends && aiConfigSupportedBackends.length < availableEngines.length && (
+                    <p className="text-xs text-muted-foreground">
+                      Some engines are unavailable based on your GPU type. AI Configurator recommends {aiConfigRecommendedBackend?.toUpperCase()}.
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* KAITO Model Configuration - only show for KAITO runtime with non-vLLM models */}
+        {selectedRuntime === 'kaito' && !isVllmModel && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Box className="h-5 w-5" />
+                KAITO Model Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Compute Type Selection - only for non-vLLM models (vLLM always requires GPU) */}
+              <div className="space-y-3">
+                <Label>Compute Type</Label>
+                <RadioGroup
+                  value={kaitoComputeType}
+                  onValueChange={(value) => setKaitoComputeType(value as KaitoComputeType)}
+                  className="flex gap-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="cpu" id="compute-cpu" />
+                    <Label htmlFor="compute-cpu" className="cursor-pointer flex items-center gap-1">
+                      <Cpu className="h-4 w-4" />
+                      CPU
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="gpu" id="compute-gpu" />
+                    <Label htmlFor="compute-gpu" className="cursor-pointer flex items-center gap-1">
+                      <Server className="h-4 w-4" />
+                      GPU
+                    </Label>
+                  </div>
+                </RadioGroup>
+                <p className="text-xs text-muted-foreground">
+                  {kaitoComputeType === 'cpu'
+                    ? 'Run inference on CPU nodes - slower but no GPU required'
+                    : 'Run inference on GPU nodes - faster performance'}
+                </p>
+              </div>
+
+              {/* Run Mode Selection - only for HuggingFace GGUF models */}
+              {isHuggingFaceGgufModel && (
+                <div className="space-y-3">
+                  <Label>Run Mode</Label>
+                  <RadioGroup
+                    value={ggufRunMode}
+                    onValueChange={(value) => setGgufRunMode(value as GgufRunMode)}
+                    className="grid gap-3"
+                  >
+                    <label
+                      htmlFor="run-direct"
+                      className={cn(
+                        "flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors",
+                        ggufRunMode === 'direct'
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-muted-foreground/50"
+                      )}
+                    >
+                      <RadioGroupItem value="direct" id="run-direct" className="mt-1" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">Direct Run</span>
+                          <Badge variant="secondary" className="text-xs">Recommended</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Downloads model at runtime. No Docker required.
+                        </p>
+                      </div>
+                    </label>
+                    <label
+                      htmlFor="run-build"
+                      className={cn(
+                        "flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors",
+                        ggufRunMode === 'build'
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-muted-foreground/50"
+                      )}
+                    >
+                      <RadioGroupItem value="build" id="run-build" className="mt-1" />
+                      <div className="flex-1">
+                        <span className="font-medium">Build Image</span>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Pre-builds container image. Requires Docker running locally.
+                        </p>
+                      </div>
+                    </label>
+                  </RadioGroup>
+                </div>
+              )}
+
+              {/* Preferred Nodes Selection */}
+              <div className="space-y-3">
+                <Label>Preferred Nodes (Optional)</Label>
+                {clusterNodesLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading cluster nodes...
+                  </div>
+                ) : clusterNodes.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {clusterNodes.map((node) => {
+                        const isSelected = preferredNodes.includes(node.name)
+                        return (
+                          <button
+                            key={node.name}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setPreferredNodes(preferredNodes.filter(n => n !== node.name))
+                              } else {
+                                setPreferredNodes([...preferredNodes, node.name])
+                              }
+                            }}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm border transition-colors",
+                              isSelected
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background hover:bg-accent border-input"
+                            )}
+                          >
+                            <span>{node.name}</span>
+                            {node.gpuCount > 0 && (
+                              <Badge variant="secondary" className="text-xs px-1 py-0">
+                                {node.gpuCount} GPU{node.gpuCount > 1 ? 's' : ''}
+                              </Badge>
+                            )}
+                            {!node.ready && (
+                              <Badge variant="destructive" className="text-xs px-1 py-0">
+                                Not Ready
+                              </Badge>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {preferredNodes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPreferredNodes([])}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Clear selection
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground py-2">
+                    No schedulable nodes found in the cluster.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Select nodes to prefer for this deployment.
+                  If none selected, KAITO will schedule on any available node matching the label selector.
+                </p>
+              </div>
+
+              {/* GGUF File Selection - for HuggingFace GGUF models */}
+              {isHuggingFaceGgufModel && (
+                <div className="space-y-3">
+                  <Label htmlFor="ggufFile">GGUF File</Label>
+                  {ggufFilesLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading GGUF files from repository...
+                    </div>
+                  ) : ggufFiles.length > 0 ? (
+                    <Select value={ggufFile} onValueChange={setGgufFile}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a GGUF file" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ggufFiles.map((file) => (
+                          <SelectItem key={file} value={file}>
+                            {file}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="text-sm text-muted-foreground py-2">
+                      No GGUF files found in this repository.
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Select the quantization variant to use. Q4_K_M offers a good balance of quality and size.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Deployment Mode - show for non-KAITO runtimes OR KAITO with vLLM models */}
+        {(selectedRuntime !== 'kaito' || isVllmModel) && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Deployment Mode</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <RadioGroup
+                value={config.mode}
+                onValueChange={(value) => {
+                  // Only allow changing mode for non-KAITO runtimes
+                  if (selectedRuntime !== 'kaito') {
+                    updateConfig('mode', value as DeploymentMode)
+                  }
+                }}
+                className="grid gap-4 sm:grid-cols-2"
+              >
+                <div className="flex items-start space-x-2">
+                  <RadioGroupItem value="aggregated" id="mode-aggregated" className="mt-1" />
+                  <div>
+                    <Label htmlFor="mode-aggregated" className="cursor-pointer font-medium flex items-center gap-2">
+                      Aggregated (Standard)
+                      {aiConfigRecommendedMode === 'aggregated' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          <Sparkles className="h-3 w-3" />
+                          Optimized
+                        </span>
+                      )}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Combined prefill and decode on same workers
+                    </p>
+                  </div>
+                </div>
+                <div className={cn("flex items-start space-x-2", selectedRuntime === 'kaito' && "opacity-50")}>
                   <RadioGroupItem
                     value="disaggregated"
                     id="mode-disaggregated"
                     className="mt-1"
-                disabled={selectedRuntime === 'kaito'}
-              />
-              <div>
+                    disabled={selectedRuntime === 'kaito'}
+                  />
+                  <div>
                     <Label
                       htmlFor="mode-disaggregated"
-                  className={cn("font-medium flex items-center gap-2", selectedRuntime === 'kaito' ? "cursor-not-allowed" : "cursor-pointer")}
-                >
-                  Disaggregated (P/D)
-                  {aiConfigRecommendedMode === 'disaggregated' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      <Sparkles className="h-3 w-3" />
-                      Optimized
-                    </span>
-                  )}
-                </Label>
-                <p className="text-xs text-muted-foreground">
+                      className={cn("font-medium flex items-center gap-2", selectedRuntime === 'kaito' ? "cursor-not-allowed" : "cursor-pointer")}
+                    >
+                      Disaggregated (P/D)
+                      {aiConfigRecommendedMode === 'disaggregated' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          <Sparkles className="h-3 w-3" />
+                          Optimized
+                        </span>
+                      )}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
                       {selectedRuntime === 'kaito'
-                    ? 'Separate prefill and decode workers - not supported by KAITO'
-                    : 'Separate prefill and decode workers for better resource utilization'}
-                </p>
-              </div>
-            </div>
-          </RadioGroup>
-        </CardContent>
-      </Card>
-      )}
+                        ? 'Separate prefill and decode workers - not supported by KAITO'
+                        : 'Separate prefill and decode workers for better resource utilization'}
+                    </p>
+                  </div>
+                </div>
+              </RadioGroup>
+            </CardContent>
+          </Card>
+        )}
 
-      {/* Deployment Options - show for all runtimes with vLLM/GPU */}
-      {(selectedRuntime !== 'kaito' || isVllmModel || kaitoComputeType === 'gpu') && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Deployment Options</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {config.mode === 'aggregated' || selectedRuntime === 'kaito' ? (
-            /* Aggregated mode: single replica count (KAITO always uses aggregated) */
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="replicas">Worker Replicas</Label>
-                <Input
-                  id="replicas"
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={config.replicas}
-                  onChange={(e) => updateConfig('replicas', parseInt(e.target.value) || 1)}
-                />
-              </div>
+        {/* Deployment Options - show for all runtimes with vLLM/GPU */}
+        {(selectedRuntime !== 'kaito' || isVllmModel || kaitoComputeType === 'gpu') && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Deployment Options</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {config.mode === 'aggregated' || selectedRuntime === 'kaito' ? (
+                /* Aggregated mode: single replica count (KAITO always uses aggregated) */
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="replicas">Worker Replicas</Label>
+                    <Input
+                      id="replicas"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={config.replicas}
+                      onChange={(e) => updateConfig('replicas', parseInt(e.target.value) || 1)}
+                    />
+                  </div>
 
-              {/* GPU per Replica with recommendation */}
-              <GpuPerReplicaField
-                id="gpusPerReplica"
-                value={config.resources?.gpu || gpuRecommendation.recommendedGpus}
-                onChange={(value) => {
-                  setConfig(prev => ({
-                    ...prev,
-                    resources: {
-                      ...prev.resources,
-                      gpu: value
-                    }
-                  }))
-                }}
-                maxGpus={detailedCapacity?.maxNodeGpuCapacity || 8}
-                recommendation={gpuRecommendation}
-                aiConfigRecommended={aiConfigRecommendedValues?.gpuPerReplica}
-              />
+                  {/* GPU per Replica with recommendation */}
+                  <GpuPerReplicaField
+                    id="gpusPerReplica"
+                    value={config.resources?.gpu || gpuRecommendation.recommendedGpus}
+                    onChange={(value) => {
+                      setConfig(prev => ({
+                        ...prev,
+                        resources: {
+                          ...prev.resources,
+                          gpu: value
+                        }
+                      }))
+                    }}
+                    maxGpus={detailedCapacity?.maxNodeGpuCapacity || 8}
+                    recommendation={gpuRecommendation}
+                    aiConfigRecommended={aiConfigRecommendedValues?.gpuPerReplica}
+                  />
 
-              {/* Router Mode is only applicable to Dynamo provider */}
-              {selectedRuntime === 'dynamo' && (
-                <div className="space-y-2">
-                  <Label>Router Mode</Label>
-                  <RadioGroup
-                    value={config.routerMode}
-                    onValueChange={(value) => updateConfig('routerMode', value as RouterMode)}
-                    className="flex gap-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="none" id="router-none" />
-                      <Label htmlFor="router-none" className="cursor-pointer">None</Label>
+                  {/* Router Mode is only applicable to Dynamo provider */}
+                  {selectedRuntime === 'dynamo' && (
+                    <div className="space-y-2">
+                      <Label>Router Mode</Label>
+                      <RadioGroup
+                        value={config.routerMode}
+                        onValueChange={(value) => updateConfig('routerMode', value as RouterMode)}
+                        className="flex gap-4"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="none" id="router-none" />
+                          <Label htmlFor="router-none" className="cursor-pointer">None</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="kv" id="router-kv" />
+                          <Label htmlFor="router-kv" className="cursor-pointer">KV-Aware</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="round-robin" id="router-rr" />
+                          <Label htmlFor="router-rr" className="cursor-pointer">Round Robin</Label>
+                        </div>
+                      </RadioGroup>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="kv" id="router-kv" />
-                      <Label htmlFor="router-kv" className="cursor-pointer">KV-Aware</Label>
+                  )}
+                </div>
+              ) : (
+                /* Disaggregated mode: separate prefill/decode configuration */
+                <div className="space-y-6">
+                  {/* Prefill Workers */}
+                  <div className="space-y-3">
+                    <h4 className="font-medium text-sm">Prefill Workers</h4>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="prefillReplicas" className="flex items-center gap-2">
+                          Replicas
+                          {aiConfigRecommendedValues?.prefillReplicas === config.prefillReplicas && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              <Sparkles className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </Label>
+                        <Input
+                          id="prefillReplicas"
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={config.prefillReplicas || 1}
+                          onChange={(e) => updateConfig('prefillReplicas', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="prefillGpus" className="flex items-center gap-2">
+                          GPUs per Worker
+                          {aiConfigRecommendedValues?.prefillGpus === config.prefillGpus && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              <Sparkles className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </Label>
+                        <Input
+                          id="prefillGpus"
+                          type="number"
+                          min={1}
+                          max={8}
+                          value={config.prefillGpus || 1}
+                          onChange={(e) => updateConfig('prefillGpus', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="round-robin" id="router-rr" />
-                      <Label htmlFor="router-rr" className="cursor-pointer">Round Robin</Label>
+                  </div>
+
+                  {/* Decode Workers */}
+                  <div className="space-y-3">
+                    <h4 className="font-medium text-sm">Decode Workers</h4>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="decodeReplicas" className="flex items-center gap-2">
+                          Replicas
+                          {aiConfigRecommendedValues?.decodeReplicas === config.decodeReplicas && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              <Sparkles className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </Label>
+                        <Input
+                          id="decodeReplicas"
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={config.decodeReplicas || 1}
+                          onChange={(e) => updateConfig('decodeReplicas', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="decodeGpus" className="flex items-center gap-2">
+                          GPUs per Worker
+                          {aiConfigRecommendedValues?.decodeGpus === config.decodeGpus && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              <Sparkles className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </Label>
+                        <Input
+                          id="decodeGpus"
+                          type="number"
+                          min={1}
+                          max={8}
+                          value={config.decodeGpus || 1}
+                          onChange={(e) => updateConfig('decodeGpus', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
                     </div>
-                  </RadioGroup>
+                  </div>
                 </div>
               )}
-            </div>
-          ) : (
-            /* Disaggregated mode: separate prefill/decode configuration */
-            <div className="space-y-6">
-              {/* Prefill Workers */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-sm">Prefill Workers</h4>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="prefillReplicas" className="flex items-center gap-2">
-                      Replicas
-                      {aiConfigRecommendedValues?.prefillReplicas === config.prefillReplicas && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                          <Sparkles className="h-2.5 w-2.5" />
-                        </span>
-                      )}
-                    </Label>
-                    <Input
-                      id="prefillReplicas"
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={config.prefillReplicas || 1}
-                      onChange={(e) => updateConfig('prefillReplicas', parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="prefillGpus" className="flex items-center gap-2">
-                      GPUs per Worker
-                      {aiConfigRecommendedValues?.prefillGpus === config.prefillGpus && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                          <Sparkles className="h-2.5 w-2.5" />
-                        </span>
-                      )}
-                    </Label>
-                    <Input
-                      id="prefillGpus"
-                      type="number"
-                      min={1}
-                      max={8}
-                      value={config.prefillGpus || 1}
-                      onChange={(e) => updateConfig('prefillGpus', parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Decode Workers */}
-              <div className="space-y-3">
-                <h4 className="font-medium text-sm">Decode Workers</h4>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="decodeReplicas" className="flex items-center gap-2">
-                      Replicas
-                      {aiConfigRecommendedValues?.decodeReplicas === config.decodeReplicas && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                          <Sparkles className="h-2.5 w-2.5" />
-                        </span>
-                      )}
-                    </Label>
-                    <Input
-                      id="decodeReplicas"
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={config.decodeReplicas || 1}
-                      onChange={(e) => updateConfig('decodeReplicas', parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="decodeGpus" className="flex items-center gap-2">
-                      GPUs per Worker
-                      {aiConfigRecommendedValues?.decodeGpus === config.decodeGpus && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                          <Sparkles className="h-2.5 w-2.5" />
-                        </span>
-                      )}
-                    </Label>
-                    <Input
-                      id="decodeGpus"
-                      type="number"
-                      min={1}
-                      max={8}
-                      value={config.decodeGpus || 1}
-                      onChange={(e) => updateConfig('decodeGpus', parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      )}
-
-      {/* Advanced Options - show for non-KAITO runtimes OR KAITO with vLLM models */}
-      {(selectedRuntime !== 'kaito' || isVllmModel) && (
-      <Card>
-        <CardHeader
-          className="cursor-pointer select-none"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-        >
-          <div className="flex items-center justify-between">
-            <CardTitle>Advanced Options</CardTitle>
-              <ChevronDown
-              className={cn(
-                "h-5 w-5 text-muted-foreground transition-transform duration-200 ease-out",
-                showAdvanced && "rotate-180"
-                )}
-            />
-          </div>
-        </CardHeader>
-
-        {/* Smooth accordion animation */}
-          <div
-          className={cn(
-            "grid transition-all duration-300 ease-out-expo",
-            showAdvanced ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-          )}
-        >
-          <div className="overflow-hidden">
-            <CardContent className="space-y-4 pt-0">
-            {/* These options only apply to non-KAITO runtimes */}
-            {selectedRuntime !== 'kaito' && (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Enforce Eager Mode</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Use eager mode for faster startup
-                    </p>
-                  </div>
-                  <Switch
-                    checked={config.enforceEager}
-                    onCheckedChange={(checked) => updateConfig('enforceEager', checked)}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Enable Prefix Caching</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Cache common prefixes for faster inference
-                    </p>
-                  </div>
-                  <Switch
-                    checked={config.enablePrefixCaching}
-                    onCheckedChange={(checked) => updateConfig('enablePrefixCaching', checked)}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Trust Remote Code</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Required for some models with custom code
-                    </p>
-                  </div>
-                  <Switch
-                    checked={config.trustRemoteCode}
-                    onCheckedChange={(checked) => updateConfig('trustRemoteCode', checked)}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* Context Length - shown for all runtimes, but uses different state for KAITO */}
-            <div className="space-y-2">
-              <Label htmlFor="contextLength">Context Length (optional)</Label>
-              <Input
-                id="contextLength"
-                type="number"
-                placeholder={model.contextLength?.toString() || 'Default'}
-                value={selectedRuntime === 'kaito' ? (maxModelLen || '') : (config.contextLength || '')}
-                onChange={(e) => {
-                  const value = e.target.value ? parseInt(e.target.value) : undefined
-                  if (selectedRuntime === 'kaito') {
-                    setMaxModelLen(value)
-                  } else {
-                    updateConfig('contextLength', value)
-                  }
-                }}
-              />
-            </div>
             </CardContent>
-          </div>
-        </div>
-      </Card>
-      )}
+          </Card>
+        )}
+
+        {/* Advanced Options - show for non-KAITO runtimes OR KAITO with vLLM models */}
+        {(selectedRuntime !== 'kaito' || isVllmModel) && (
+          <Card>
+            <CardHeader
+              className="cursor-pointer select-none"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle>Advanced Options</CardTitle>
+                <ChevronDown
+                  className={cn(
+                    "h-5 w-5 text-muted-foreground transition-transform duration-200 ease-out",
+                    showAdvanced && "rotate-180"
+                  )}
+                />
+              </div>
+            </CardHeader>
+
+            {/* Smooth accordion animation */}
+            <div
+              className={cn(
+                "grid transition-all duration-300 ease-out-expo",
+                showAdvanced ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+              )}
+            >
+              <div className="overflow-hidden">
+                <CardContent className="space-y-4 pt-0">
+                  {/* These options only apply to non-KAITO runtimes */}
+                  {selectedRuntime !== 'kaito' && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>Enforce Eager Mode</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Use eager mode for faster startup
+                          </p>
+                        </div>
+                        <Switch
+                          checked={config.enforceEager}
+                          onCheckedChange={(checked) => updateConfig('enforceEager', checked)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>Enable Prefix Caching</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Cache common prefixes for faster inference
+                          </p>
+                        </div>
+                        <Switch
+                          checked={config.enablePrefixCaching}
+                          onCheckedChange={(checked) => updateConfig('enablePrefixCaching', checked)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>Trust Remote Code</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Required for some models with custom code
+                          </p>
+                        </div>
+                        <Switch
+                          checked={config.trustRemoteCode}
+                          onCheckedChange={(checked) => updateConfig('trustRemoteCode', checked)}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Context Length - shown for all runtimes, but uses different state for KAITO */}
+                  <div className="space-y-2">
+                    <Label htmlFor="contextLength">Context Length (optional)</Label>
+                    <Input
+                      id="contextLength"
+                      type="number"
+                      placeholder={model.contextLength?.toString() || 'Default'}
+                      value={selectedRuntime === 'kaito' ? (maxModelLen || '') : (config.contextLength || '')}
+                      onChange={(e) => {
+                        const value = e.target.value ? parseInt(e.target.value) : undefined
+                        if (selectedRuntime === 'kaito') {
+                          setMaxModelLen(value)
+                        } else {
+                          updateConfig('contextLength', value)
+                        }
+                      }}
+                    />
+                  </div>
+                </CardContent>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Capacity Warning - only show for non-KAITO or KAITO with GPU/vLLM */}
         {detailedCapacity && (selectedRuntime !== 'kaito' || kaitoComputeType === 'gpu' || isVllmModel) && (
@@ -1421,28 +1469,28 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
           />
         )}
 
-      {/* Submit Button */}
-      <div className="flex gap-4">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => navigate('/')}
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          disabled={createDeployment.isProcessing || (needsHfAuth && selectedRuntime !== 'kaito') || !isRuntimeInstalled || !isKaitoConfigValid}
-          loading={createDeployment.isProcessing}
-          className={cn(
-            "flex-1 gap-2",
-            createDeployment.status === 'success' && "bg-green-600 hover:bg-green-600"
-          )}
-        >
-          {getButtonContent()}
-        </Button>
-      </div>
-    </form>
+        {/* Submit Button */}
+        <div className="flex gap-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate('/')}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={createDeployment.isProcessing || (needsHfAuth && selectedRuntime !== 'kaito') || !isRuntimeInstalled || !isKaitoConfigValid}
+            loading={createDeployment.isProcessing}
+            className={cn(
+              "flex-1 gap-2",
+              createDeployment.status === 'success' && "bg-green-600 hover:bg-green-600"
+            )}
+          >
+            {getButtonContent()}
+          </Button>
+        </div>
+      </form>
     </>
   )
 }
