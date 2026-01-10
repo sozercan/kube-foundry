@@ -57,6 +57,20 @@ export function useDeploymentLogs(
 }
 
 /**
+ * Hook to fetch manifests for a deployment
+ * Returns all resources including the main CR and related resources (Services, ConfigMaps, etc.)
+ */
+export function useDeploymentManifest(name: string | undefined, namespace?: string) {
+  return useQuery({
+    queryKey: ['deployment-manifest', name, namespace],
+    queryFn: () => deploymentsApi.getManifest(name!, namespace),
+    enabled: !!name,
+    staleTime: 30000, // Cache for 30 seconds (manifests don't change often)
+    retry: 1,
+  })
+}
+
+/**
  * Enhanced create deployment hook with granular status tracking
  * Provides status: 'idle' | 'validating' | 'submitting' | 'success' | 'error'
  */

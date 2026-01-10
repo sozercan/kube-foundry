@@ -19,6 +19,7 @@ import { type Model, type DetailedClusterCapacity, type AutoscalerDetectionResul
 import { ChevronDown, AlertCircle, Rocket, CheckCircle2, Sparkles, AlertTriangle, Server, Cpu, Box, Loader2 } from 'lucide-react'
 import { CapacityWarning } from './CapacityWarning'
 import { AIConfiguratorPanel } from './AIConfiguratorPanel'
+import { ManifestViewer } from './ManifestViewer'
 import { calculateGpuRecommendation, type GpuRecommendation } from '@/lib/gpu-recommendations'
 
 // Reusable GPU per Replica field component
@@ -1420,6 +1421,51 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             gpusPerReplica={config.resources?.gpu || gpuRecommendation.recommendedGpus || 1}
           />
         )}
+
+        {/* Manifest Preview - build config with KAITO-specific fields */}
+        {(() => {
+          // Build preview config with all necessary fields
+          let previewConfig = { ...config };
+          
+          if (selectedRuntime === 'kaito') {
+            if (isHuggingFaceGgufModel) {
+              previewConfig = {
+                ...previewConfig,
+                modelSource: 'huggingface' as const,
+                modelId: model.id,
+                ggufFile: ggufFile,
+                ggufRunMode: ggufRunMode,
+                computeType: kaitoComputeType,
+                ...(preferredNodes.length > 0 && { preferredNodes }),
+              };
+            } else if (isVllmModel) {
+              previewConfig = {
+                ...previewConfig,
+                modelSource: 'vllm' as const,
+                modelId: model.id,
+                computeType: 'gpu' as const,
+                ...(maxModelLen && { maxModelLen }),
+                ...(preferredNodes.length > 0 && { preferredNodes }),
+              };
+            } else if (selectedPremadeModel) {
+              previewConfig = {
+                ...previewConfig,
+                modelSource: 'premade' as const,
+                computeType: kaitoComputeType,
+                premadeModel: selectedPremadeModel.id,
+                ...(preferredNodes.length > 0 && { preferredNodes }),
+              };
+            }
+          }
+          
+          return (
+            <ManifestViewer 
+              mode="preview"
+              config={previewConfig}
+              provider={selectedRuntime}
+            />
+          );
+        })()}
 
       {/* Submit Button */}
       <div className="flex gap-4">

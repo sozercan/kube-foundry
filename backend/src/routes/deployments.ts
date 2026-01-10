@@ -100,6 +100,104 @@ const deployments = new Hono()
       });
     }
   })
+  .post('/preview', async (c) => {
+    // Preview endpoint - generates all resources without creating them
+    const body = await c.req.json();
+
+    const providerId = body.provider;
+    if (!providerId) {
+      throw new HTTPException(400, {
+        message: 'The "provider" field is required. Please specify the runtime (dynamo, kuberay, or kaito).',
+      });
+    }
+
+    const provider = providerRegistry.getProvider(providerId);
+    const validationResult = provider.validateConfig(body);
+
+    if (!validationResult.valid) {
+      throw new HTTPException(400, {
+        message: `Validation error: ${validationResult.errors.join(', ')}`,
+      });
+    }
+
+    const config = validationResult.data!;
+    config.provider = providerId;
+
+    // Generate the main manifest
+    const mainManifest = provider.generateManifest(config);
+
+    // Add kubefoundry.io/provider label for consistency
+    const metadata = mainManifest.metadata as Record<string, unknown> || {};
+    const labels = (metadata.labels as Record<string, string>) || {};
+    labels['kubefoundry.io/provider'] = providerId;
+    metadata.labels = labels;
+    mainManifest.metadata = metadata;
+
+    const crdConfig = provider.getCRDConfig();
+
+    // Build array of all resources that will be created
+    const resources: Array<{
+      kind: string;
+      apiVersion: string;
+      name: string;
+      manifest: Record<string, unknown>;
+    }> = [];
+
+    // Add the main CR
+    resources.push({
+      kind: crdConfig.kind,
+      apiVersion: `${crdConfig.apiGroup}/${crdConfig.apiVersion}`,
+      name: config.name,
+      manifest: mainManifest,
+    });
+
+    // Generate additional resources based on provider and config
+    // KAITO vLLM deployments get a separate Service for port 8000
+    if (providerId === 'kaito' && (config as { modelSource?: string }).modelSource === 'vllm') {
+      const serviceName = `${config.name}-vllm`;
+      const serviceManifest = {
+        apiVersion: 'v1',
+        kind: 'Service',
+        metadata: {
+          name: serviceName,
+          namespace: config.namespace,
+          labels: {
+            'app.kubernetes.io/name': 'kubefoundry',
+            'app.kubernetes.io/instance': config.name,
+            'app.kubernetes.io/managed-by': 'kubefoundry',
+          },
+        },
+        spec: {
+          type: 'ClusterIP',
+          ports: [
+            {
+              name: 'http',
+              port: 8000,
+              targetPort: 8000,
+              protocol: 'TCP',
+            },
+          ],
+          selector: {
+            'kaito.sh/workspace': config.name,
+          },
+        },
+      };
+      resources.push({
+        kind: 'Service',
+        apiVersion: 'v1',
+        name: serviceName,
+        manifest: serviceManifest,
+      });
+    }
+
+    return c.json({
+      resources,
+      primaryResource: {
+        kind: crdConfig.kind,
+        apiVersion: `${crdConfig.apiGroup}/${crdConfig.apiVersion}`,
+      },
+    });
+  })
   .post('/', async (c) => {
     const body = await c.req.json();
 
@@ -195,6 +293,110 @@ const deployments = new Hono()
       }
 
       return c.json(deployment);
+    }
+  )
+  .get(
+    '/:name/manifest',
+    zValidator('param', deploymentParamsSchema),
+    zValidator('query', deploymentQuerySchema),
+    async (c) => {
+      const { name } = c.req.valid('param');
+      const { namespace } = c.req.valid('query');
+      const resolvedNamespace = namespace || (await configService.getDefaultNamespace());
+
+      // Get the main CR manifest
+      const manifest = await kubernetesService.getDeploymentManifest(name, resolvedNamespace);
+
+      if (!manifest) {
+        throw new HTTPException(404, { message: 'Deployment manifest not found' });
+      }
+
+      // Determine provider from the manifest labels
+      const metadata = manifest.metadata as Record<string, unknown> | undefined;
+      const labels = (metadata?.labels as Record<string, string>) || {};
+      const providerId = labels['kubefoundry.io/provider'] || 'unknown';
+      const kind = (manifest.kind as string) || 'Unknown';
+      const apiVersion = (manifest.apiVersion as string) || 'v1';
+
+      // Build array of resources
+      const resources: Array<{
+        kind: string;
+        apiVersion: string;
+        name: string;
+        manifest: Record<string, unknown>;
+      }> = [];
+
+      // Add main CR
+      resources.push({
+        kind,
+        apiVersion,
+        name,
+        manifest,
+      });
+
+      // Look for related resources (Services, ConfigMaps, etc.)
+      try {
+        // Check for KAITO vLLM service
+        if (providerId === 'kaito') {
+          const vllmServiceName = `${name}-vllm`;
+          try {
+            const k8s = await import('@kubernetes/client-node');
+            const kc = new k8s.KubeConfig();
+            kc.loadFromDefault();
+            const coreV1Api = kc.makeApiClient(k8s.CoreV1Api);
+            
+            const serviceResponse = await coreV1Api.readNamespacedService(vllmServiceName, resolvedNamespace);
+            if (serviceResponse.body) {
+              resources.push({
+                kind: 'Service',
+                apiVersion: 'v1',
+                name: vllmServiceName,
+                manifest: serviceResponse.body as unknown as Record<string, unknown>,
+              });
+            }
+          } catch {
+            // Service doesn't exist, that's fine
+          }
+        }
+
+        // Look for ConfigMaps with kubefoundry labels matching this deployment
+        try {
+          const k8s = await import('@kubernetes/client-node');
+          const kc = new k8s.KubeConfig();
+          kc.loadFromDefault();
+          const coreV1Api = kc.makeApiClient(k8s.CoreV1Api);
+          
+          const configMapsResponse = await coreV1Api.listNamespacedConfigMap(
+            resolvedNamespace,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            `app.kubernetes.io/instance=${name},app.kubernetes.io/managed-by=kubefoundry`
+          );
+          
+          for (const cm of configMapsResponse.body.items) {
+            resources.push({
+              kind: 'ConfigMap',
+              apiVersion: 'v1',
+              name: (cm.metadata?.name as string) || 'unknown',
+              manifest: cm as unknown as Record<string, unknown>,
+            });
+          }
+        } catch {
+          // Failed to list ConfigMaps, that's fine
+        }
+      } catch (error) {
+        logger.debug({ error, name, namespace: resolvedNamespace }, 'Error fetching related resources');
+      }
+
+      return c.json({
+        resources,
+        primaryResource: {
+          kind,
+          apiVersion,
+        },
+      });
     }
   )
   .delete(
