@@ -138,7 +138,7 @@ export const costsRoutes = new Hono()
   })
 
   /**
-   * Get list of supported GPU models with pricing
+   * Get list of supported GPU models
    */
   .get('/gpu-models', (c) => {
     const models = costEstimationService.getSupportedGpuModels();
@@ -146,12 +146,12 @@ export const costsRoutes = new Hono()
     return c.json({
       success: true,
       models,
-      pricingLastUpdated: costEstimationService.getPricingLastUpdated(),
+      note: 'For actual pricing, use /costs/node-pools or /costs/instance-price for real-time cloud provider pricing',
     });
   })
 
   /**
-   * Normalize a GPU model name to our pricing key
+   * Normalize a GPU model name and get GPU info
    */
   .get('/normalize-gpu', (c) => {
     const gpuLabel = c.req.query('label');
@@ -161,17 +161,16 @@ export const costsRoutes = new Hono()
     }
 
     const normalizedModel = costEstimationService.normalizeGpuModel(gpuLabel);
-    const pricing = costEstimationService.getGpuPricing(normalizedModel);
+    const gpuInfo = costEstimationService.getGpuInfo(normalizedModel);
 
     return c.json({
       success: true,
       originalLabel: gpuLabel,
       normalizedModel,
-      pricing: pricing
+      gpuInfo: gpuInfo
         ? {
-            memoryGb: pricing.memoryGb,
-            generation: pricing.generation,
-            hourlyRate: pricing.hourlyRate,
+            memoryGb: gpuInfo.memoryGb,
+            generation: gpuInfo.generation,
           }
         : null,
     });

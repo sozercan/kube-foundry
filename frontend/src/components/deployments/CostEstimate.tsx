@@ -8,131 +8,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import type { NodePoolInfo, NodePoolCostEstimate, CostBreakdown, CloudProvider } from '@/lib/api'
+import type { NodePoolInfo, NodePoolCostEstimate } from '@/lib/api'
 import { costsApi } from '@/lib/api'
 
-// GPU pricing data (embedded for client-side calculation)
-// This mirrors the backend pricing for instant UI updates
-const GPU_PRICING: Record<string, { hourlyRate: { aws?: number; azure?: number; gcp?: number }; memoryGb: number }> = {
-  'H100-80GB': { hourlyRate: { aws: 5.50, azure: 5.20, gcp: 5.35 }, memoryGb: 80 },
-  'A100-80GB': { hourlyRate: { aws: 4.10, azure: 3.67, gcp: 3.93 }, memoryGb: 80 },
-  'A100-40GB': { hourlyRate: { aws: 3.40, azure: 3.06, gcp: 3.22 }, memoryGb: 40 },
-  'L40S': { hourlyRate: { aws: 1.85, azure: 1.70, gcp: 1.75 }, memoryGb: 48 },
-  'L4': { hourlyRate: { aws: 0.81, azure: 0.75, gcp: 0.70 }, memoryGb: 24 },
-  'A10G': { hourlyRate: { aws: 1.01, azure: 0.90, gcp: 0.95 }, memoryGb: 24 },
-  'A10': { hourlyRate: { aws: 1.10, azure: 1.00, gcp: 1.05 }, memoryGb: 24 },
-  'T4': { hourlyRate: { aws: 0.53, azure: 0.45, gcp: 0.35 }, memoryGb: 16 },
-  'V100': { hourlyRate: { aws: 3.06, azure: 2.75, gcp: 2.48 }, memoryGb: 32 },
-}
-
-// GPU model aliases for normalization
-const GPU_ALIASES: Record<string, string> = {
-  'NVIDIA-H100-80GB-HBM3': 'H100-80GB',
-  'NVIDIA-H100-SXM5-80GB': 'H100-80GB',
-  'NVIDIA-H100-PCIe': 'H100-80GB',
-  'H100': 'H100-80GB',
-  'NVIDIA-A100-SXM4-80GB': 'A100-80GB',
-  'NVIDIA-A100-80GB-PCIe': 'A100-80GB',
-  'NVIDIA-A100-SXM4-40GB': 'A100-40GB',
-  'NVIDIA-A100-PCIE-40GB': 'A100-40GB',
-  'A100': 'A100-40GB',
-  'NVIDIA-L40S': 'L40S',
-  'NVIDIA-L4': 'L4',
-  'NVIDIA-A10G': 'A10G',
-  'NVIDIA-A10': 'A10',
-  'Tesla-T4': 'T4',
-  'NVIDIA-Tesla-T4': 'T4',
-  'Tesla-V100-SXM2-16GB': 'V100',
-  'Tesla-V100-SXM2-32GB': 'V100',
-  'NVIDIA-V100': 'V100',
-}
-
-const HOURS_PER_MONTH = 730
-
-/**
- * Normalize GPU model name from Kubernetes label to pricing key
- */
-function normalizeGpuModel(gpuLabel: string | undefined): string {
-  if (!gpuLabel) return 'A100-40GB' // Default
-
-  // Check direct match
-  if (GPU_PRICING[gpuLabel]) return gpuLabel
-
-  // Check aliases
-  if (GPU_ALIASES[gpuLabel]) return GPU_ALIASES[gpuLabel]
-
-  // Try to find partial match
-  for (const [alias, normalized] of Object.entries(GPU_ALIASES)) {
-    if (gpuLabel.toLowerCase().includes(alias.toLowerCase())) {
-      return normalized
-    }
-  }
-
-  // Try to extract from common patterns
-  const gpuFamilies = ['H100', 'A100', 'L40S', 'L4', 'A10G', 'A10', 'T4', 'V100']
-  for (const family of gpuFamilies) {
-    if (gpuLabel.toUpperCase().includes(family)) {
-      // Check for memory suffix
-      const memMatch = gpuLabel.match(/(\d+)\s*GB/i)
-      if (memMatch) {
-        const withMem = `${family}-${memMatch[1]}GB`
-        if (GPU_PRICING[withMem]) return withMem
-      }
-      // Return first matching model
-      for (const model of Object.keys(GPU_PRICING)) {
-        if (model.startsWith(family)) return model
-      }
-    }
-  }
-
-  return 'A100-40GB' // Default fallback
-}
-
-/**
- * Calculate cost estimate for a given configuration
- */
-function calculateCost(gpuModel: string, gpuCount: number, replicas: number): CostBreakdown | null {
-  const normalizedModel = normalizeGpuModel(gpuModel)
-  const pricing = GPU_PRICING[normalizedModel]
-
-  if (!pricing) return null
-
-  const totalGpus = gpuCount * replicas
-  const rates = [pricing.hourlyRate.aws, pricing.hourlyRate.azure, pricing.hourlyRate.gcp].filter(
-    (r): r is number => r !== undefined && r > 0
-  )
-  const avgRate = rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 0
-
-  const hourly = avgRate * totalGpus
-  const monthly = hourly * HOURS_PER_MONTH
-
-  const byProvider: { provider: CloudProvider; hourly: number; monthly: number }[] = []
-  if (pricing.hourlyRate.aws) byProvider.push({ provider: 'aws', hourly: pricing.hourlyRate.aws * totalGpus, monthly: pricing.hourlyRate.aws * totalGpus * HOURS_PER_MONTH })
-  if (pricing.hourlyRate.azure) byProvider.push({ provider: 'azure', hourly: pricing.hourlyRate.azure * totalGpus, monthly: pricing.hourlyRate.azure * totalGpus * HOURS_PER_MONTH })
-  if (pricing.hourlyRate.gcp) byProvider.push({ provider: 'gcp', hourly: pricing.hourlyRate.gcp * totalGpus, monthly: pricing.hourlyRate.gcp * totalGpus * HOURS_PER_MONTH })
-
-  return {
-    estimate: {
-      hourly: Math.round(hourly * 100) / 100,
-      monthly: Math.round(monthly * 100) / 100,
-      currency: 'USD',
-      source: 'static',
-      confidence: byProvider.length >= 2 ? 'high' : 'medium',
-    },
-    perGpu: {
-      hourly: Math.round(avgRate * 100) / 100,
-      monthly: Math.round(avgRate * HOURS_PER_MONTH * 100) / 100,
-    },
-    totalGpus,
-    gpuModel,
-    normalizedGpuModel: normalizedModel,
-    byProvider,
-    notes: [
-      'Prices are approximate on-demand rates',
-      'Spot instances can be 60-80% cheaper',
-    ],
-  }
-}
+// No more static pricing - all pricing comes from cloud provider APIs via the backend
 
 interface CostEstimateProps {
   /** Node pools with GPU info */
@@ -149,7 +28,7 @@ interface CostEstimateProps {
 
 /**
  * Display cost estimates for GPU deployments
- * Fetches real-time pricing from cloud provider APIs with static fallback
+ * Fetches real-time pricing from cloud provider APIs
  */
 export function CostEstimate({
   nodePools,
@@ -161,6 +40,8 @@ export function CostEstimate({
   const [nodePoolCosts, setNodePoolCosts] = useState<NodePoolCostEstimate[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [pricingSource, setPricingSource] = useState<string>('')
+  const [pricingError, setPricingError] = useState<string | null>(null)
+  const [unsupportedProvider, setUnsupportedProvider] = useState<boolean>(false)
 
   // Fetch real-time pricing from backend API
   useEffect(() => {
@@ -168,26 +49,26 @@ export function CostEstimate({
 
     const fetchPricing = async () => {
       setIsLoading(true)
+      setPricingError(null)
+      setUnsupportedProvider(false)
       try {
         const response = await costsApi.getNodePoolCosts(gpuCount, replicas)
         if (response.success && response.nodePoolCosts) {
           setNodePoolCosts(response.nodePoolCosts)
-          setPricingSource((response as unknown as { pricingSource?: string }).pricingSource || 'static')
+          setPricingSource((response as unknown as { pricingSource?: string }).pricingSource || 'realtime')
+          
+          // Check if any pool has real-time pricing - if none do, provider is unsupported
+          const hasRealtimePricing = response.nodePoolCosts.some(
+            (pool) => pool.realtimePricing && pool.realtimePricing.hourlyPrice > 0
+          )
+          if (!hasRealtimePricing && response.nodePoolCosts.length > 0) {
+            setUnsupportedProvider(true)
+          }
         }
       } catch (error) {
         console.error('Failed to fetch real-time pricing:', error)
-        // Fall back to client-side static calculation
-        const fallbackCosts = nodePools
-          .filter((pool) => pool.gpuModel)
-          .map((pool) => ({
-            poolName: pool.name,
-            gpuModel: pool.gpuModel!,
-            availableGpus: pool.availableGpus ?? 0,
-            costBreakdown: calculateCost(pool.gpuModel!, gpuCount, replicas)!,
-          }))
-          .filter((item) => item.costBreakdown !== null)
-        setNodePoolCosts(fallbackCosts)
-        setPricingSource('static-client')
+        setPricingError('Unable to fetch pricing from cloud provider API')
+        setNodePoolCosts([])
       } finally {
         setIsLoading(false)
       }
@@ -195,6 +76,31 @@ export function CostEstimate({
 
     fetchPricing()
   }, [nodePools, gpuCount, replicas])
+
+  // Show unsupported provider message
+  if (unsupportedProvider) {
+    return (
+      <div className={`flex flex-col gap-1 text-sm text-muted-foreground ${className}`}>
+        <div className="flex items-center gap-2">
+          <Info className="h-4 w-4 text-blue-500" />
+          <span>Real-time pricing is not yet available for your cloud provider.</span>
+        </div>
+        <p className="text-xs text-muted-foreground ml-6">
+          AWS and GCP pricing support coming soon.
+        </p>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (pricingError) {
+    return (
+      <div className={`flex items-center gap-2 text-sm text-muted-foreground ${className}`}>
+        <AlertCircle className="h-4 w-4 text-yellow-500" />
+        <span>{pricingError}</span>
+      </div>
+    )
+  }
 
   // If no pools with GPU info, show nothing
   if (!nodePools || nodePools.length === 0 || nodePoolCosts.length === 0) {

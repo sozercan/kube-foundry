@@ -2,58 +2,90 @@ import type {
   CostBreakdown,
   CostEstimate,
   CostEstimateRequest,
-  CloudProvider,
   NodePoolCostEstimate,
 } from '@kubefoundry/shared';
 import type { NodePoolInfo } from '@kubefoundry/shared';
-import gpuPricingData from '../data/gpu-pricing.json';
-import logger from '../lib/logger';
+import { logger } from '../lib/logger';
 
 /** Hours per month assuming 24/7 operation */
 const DEFAULT_HOURS_PER_MONTH = 730;
 
-/** GPU pricing data structure from JSON */
-interface GpuModelPricing {
+/**
+ * GPU model info for normalization (moved from static JSON)
+ * This is now only used for GPU name normalization, not pricing.
+ * Actual pricing comes from cloudPricing.ts via cloud provider APIs.
+ */
+interface GpuModelInfo {
   aliases: string[];
   memoryGb: number;
-  hourlyRate: {
-    aws?: number;
-    azure?: number;
-    gcp?: number;
-  };
   generation: string;
-  notes: string;
 }
 
-interface GpuPricingDatabase {
-  version: string;
-  lastUpdated: string;
-  currency: string;
-  notes: string[];
-  gpuModels: Record<string, GpuModelPricing>;
-  defaultGpu: {
-    model: string;
-    reason: string;
-  };
-}
+const GPU_MODELS: Record<string, GpuModelInfo> = {
+  'H100-80GB': {
+    aliases: ['NVIDIA-H100-80GB-HBM3', 'H100', 'NVIDIA H100'],
+    memoryGb: 80,
+    generation: 'Hopper',
+  },
+  'A100-80GB': {
+    aliases: ['NVIDIA-A100-SXM4-80GB', 'NVIDIA-A100-80GB-PCIe', 'A100-80GB', 'A100 80GB'],
+    memoryGb: 80,
+    generation: 'Ampere',
+  },
+  'A100-40GB': {
+    aliases: ['NVIDIA-A100-SXM4-40GB', 'NVIDIA-A100-40GB-PCIe', 'A100-40GB', 'A100 40GB', 'A100'],
+    memoryGb: 40,
+    generation: 'Ampere',
+  },
+  L40S: {
+    aliases: ['NVIDIA-L40S', 'L40S'],
+    memoryGb: 48,
+    generation: 'Ada Lovelace',
+  },
+  L4: {
+    aliases: ['NVIDIA-L4', 'L4'],
+    memoryGb: 24,
+    generation: 'Ada Lovelace',
+  },
+  A10G: {
+    aliases: ['NVIDIA-A10G', 'A10G', 'NVIDIA A10G'],
+    memoryGb: 24,
+    generation: 'Ampere',
+  },
+  A10: {
+    aliases: ['NVIDIA-A10', 'A10', 'NVIDIA A10'],
+    memoryGb: 24,
+    generation: 'Ampere',
+  },
+  T4: {
+    aliases: ['NVIDIA-Tesla-T4', 'Tesla-T4', 'T4', 'NVIDIA T4'],
+    memoryGb: 16,
+    generation: 'Turing',
+  },
+  V100: {
+    aliases: ['NVIDIA-Tesla-V100', 'Tesla-V100', 'V100', 'V100-SXM2-16GB', 'V100-PCIE-16GB'],
+    memoryGb: 16,
+    generation: 'Volta',
+  },
+};
 
-const pricingDb = gpuPricingData as GpuPricingDatabase;
+const DEFAULT_GPU = 'A10';
 
 /**
- * Normalize GPU model name from Kubernetes node label to our pricing key
+ * Normalize GPU model name from Kubernetes node label to our GPU key
  *
  * @param gpuLabel - The raw GPU label from nvidia.com/gpu.product
- * @returns Normalized GPU model name that matches our pricing database
+ * @returns Normalized GPU model name
  */
 export function normalizeGpuModel(gpuLabel: string): string {
   if (!gpuLabel) {
-    return pricingDb.defaultGpu.model;
+    return DEFAULT_GPU;
   }
 
   const normalizedLabel = gpuLabel.trim();
 
   // Check each GPU model for matching aliases
-  for (const [modelKey, modelData] of Object.entries(pricingDb.gpuModels)) {
+  for (const [modelKey, modelData] of Object.entries(GPU_MODELS)) {
     // Check exact match with model key
     if (normalizedLabel.toLowerCase() === modelKey.toLowerCase()) {
       return modelKey;
@@ -83,12 +115,12 @@ export function normalizeGpuModel(gpuLabel: string): string {
       // If we have memory info, try to find exact match
       if (memoryGb) {
         const modelWithMemory = `${family}-${memoryGb}GB`;
-        if (pricingDb.gpuModels[modelWithMemory]) {
+        if (GPU_MODELS[modelWithMemory]) {
           return modelWithMemory;
         }
       }
       // Return first matching model for this family
-      for (const modelKey of Object.keys(pricingDb.gpuModels)) {
+      for (const modelKey of Object.keys(GPU_MODELS)) {
         if (modelKey.startsWith(family)) {
           return modelKey;
         }
@@ -97,129 +129,50 @@ export function normalizeGpuModel(gpuLabel: string): string {
   }
 
   logger.warn({ gpuLabel }, 'Could not normalize GPU model, using default');
-  return pricingDb.defaultGpu.model;
+  return DEFAULT_GPU;
 }
 
 /**
- * Get pricing information for a GPU model
+ * Get GPU model info (memory, generation) for a GPU model
+ * Note: For actual pricing, use cloudPricing.ts
  */
-export function getGpuPricing(gpuModel: string): GpuModelPricing | undefined {
+export function getGpuInfo(gpuModel: string): GpuModelInfo | undefined {
   const normalizedModel = normalizeGpuModel(gpuModel);
-  return pricingDb.gpuModels[normalizedModel];
+  return GPU_MODELS[normalizedModel];
 }
 
 /**
- * Calculate average hourly rate across all providers
- */
-function calculateAverageRate(hourlyRate: { aws?: number; azure?: number; gcp?: number }): number {
-  const rates = [hourlyRate.aws, hourlyRate.azure, hourlyRate.gcp].filter(
-    (r): r is number => r !== undefined && r > 0
-  );
-
-  if (rates.length === 0) {
-    return 0;
-  }
-
-  return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
-}
-
-/**
- * Estimate deployment cost based on GPU configuration
+ * @deprecated Use cloudPricing.ts for real-time pricing
+ * This function is kept for backward compatibility but returns low-confidence estimates
  */
 export function estimateCost(request: CostEstimateRequest): CostBreakdown {
   const normalizedGpuModel = normalizeGpuModel(request.gpuType);
-  const pricing = pricingDb.gpuModels[normalizedGpuModel];
+  const gpuInfo = GPU_MODELS[normalizedGpuModel];
 
   const totalGpus = request.gpuCount * request.replicas;
-  const hoursPerMonth = request.hoursPerMonth ?? DEFAULT_HOURS_PER_MONTH;
 
-  // If no pricing found, return with low confidence
-  if (!pricing) {
-    return {
-      estimate: {
-        hourly: 0,
-        monthly: 0,
-        currency: 'USD',
-        source: 'static',
-        confidence: 'low',
-      },
-      perGpu: { hourly: 0, monthly: 0 },
-      totalGpus,
-      gpuModel: request.gpuType,
-      normalizedGpuModel,
-      notes: [`No pricing data available for GPU model: ${request.gpuType}`],
-    };
-  }
-
-  const avgHourlyPerGpu = calculateAverageRate(pricing.hourlyRate);
-  const totalHourly = avgHourlyPerGpu * totalGpus;
-  const totalMonthly = totalHourly * hoursPerMonth;
-
-  // Build provider-specific breakdown
-  const byProvider: { provider: CloudProvider; hourly: number; monthly: number }[] = [];
-  const hourlyRates = pricing.hourlyRate;
-  
-  if (hourlyRates.aws && hourlyRates.aws > 0) {
-    byProvider.push({
-      provider: 'aws',
-      hourly: hourlyRates.aws * totalGpus,
-      monthly: hourlyRates.aws * totalGpus * hoursPerMonth,
-    });
-  }
-  if (hourlyRates.azure && hourlyRates.azure > 0) {
-    byProvider.push({
-      provider: 'azure',
-      hourly: hourlyRates.azure * totalGpus,
-      monthly: hourlyRates.azure * totalGpus * hoursPerMonth,
-    });
-  }
-  if (hourlyRates.gcp && hourlyRates.gcp > 0) {
-    byProvider.push({
-      provider: 'gcp',
-      hourly: hourlyRates.gcp * totalGpus,
-      monthly: hourlyRates.gcp * totalGpus * hoursPerMonth,
-    });
-  }
-
-  // Determine confidence level
-  let confidence: 'high' | 'medium' | 'low' = 'high';
-  if (byProvider.length < 2) {
-    confidence = 'medium';
-  }
-  if (avgHourlyPerGpu === 0) {
-    confidence = 'low';
-  }
-
-  // Build notes
-  const notes: string[] = [];
-  if (pricing.notes) {
-    notes.push(pricing.notes);
-  }
-  notes.push(...pricingDb.notes);
-
-  const estimate: CostEstimate = {
-    hourly: Math.round(totalHourly * 100) / 100,
-    monthly: Math.round(totalMonthly * 100) / 100,
-    currency: 'USD',
-    source: 'static',
-    confidence,
-  };
-
+  // Return low-confidence result indicating that real-time pricing should be used
   return {
-    estimate,
-    perGpu: {
-      hourly: Math.round(avgHourlyPerGpu * 100) / 100,
-      monthly: Math.round(avgHourlyPerGpu * hoursPerMonth * 100) / 100,
+    estimate: {
+      hourly: 0,
+      monthly: 0,
+      currency: 'USD',
+      source: 'static',
+      confidence: 'low',
     },
+    perGpu: { hourly: 0, monthly: 0 },
     totalGpus,
     gpuModel: request.gpuType,
     normalizedGpuModel,
-    byProvider: byProvider.length > 0 ? byProvider : undefined,
-    notes,
+    notes: [
+      'Static pricing has been removed. Use real-time pricing from cloud provider APIs.',
+      gpuInfo ? `GPU: ${normalizedGpuModel} (${gpuInfo.memoryGb}GB, ${gpuInfo.generation})` : `Unknown GPU: ${request.gpuType}`,
+    ],
   };
 }
 
 /**
+ * @deprecated Use cloudPricing.ts for real-time pricing
  * Estimate costs for each node pool in the cluster
  */
 export function estimateNodePoolCosts(
@@ -246,30 +199,29 @@ export function estimateNodePoolCosts(
 }
 
 /**
- * Get all supported GPU models with their pricing
+ * Get all supported GPU models with their info
+ * Note: For actual pricing, use cloudPricing.ts
  */
 export function getSupportedGpuModels(): Array<{
   model: string;
   memoryGb: number;
-  avgHourlyRate: number;
   generation: string;
 }> {
-  return Object.entries(pricingDb.gpuModels).map(([model, data]) => ({
+  return Object.entries(GPU_MODELS).map(([model, data]) => ({
     model,
     memoryGb: data.memoryGb,
-    avgHourlyRate: calculateAverageRate(data.hourlyRate),
     generation: data.generation,
   }));
 }
 
 /**
  * Cost estimation service singleton
+ * Note: For actual pricing, use cloudPricingService from cloudPricing.ts
  */
 export const costEstimationService = {
   normalizeGpuModel,
-  getGpuPricing,
+  getGpuInfo,
   estimateCost,
   estimateNodePoolCosts,
   getSupportedGpuModels,
-  getPricingLastUpdated: () => pricingDb.lastUpdated,
 };
