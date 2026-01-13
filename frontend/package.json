@@ -26,11 +26,11 @@
     "@tanstack/react-query": "^5.17.9",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "lucide-react": "^0.309.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.2",
-    "tailwind-merge": "^2.2.0"
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-router-dom": "^7.12.0",
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.1",
