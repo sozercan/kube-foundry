@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { costEstimationService } from '../services/costEstimation';
+import { cloudPricingService } from '../services/cloudPricing';
 import { kubernetesService } from '../services/kubernetes';
 import type { CostEstimateResponse, NodePoolCostEstimate } from '@kubefoundry/shared';
 
@@ -30,11 +31,12 @@ export const costsRoutes = new Hono()
   })
 
   /**
-   * Get cost estimates for all node pools in the cluster
+   * Get cost estimates for all node pools in the cluster using real-time pricing
    */
   .get('/node-pools', async (c) => {
     const gpuCountParam = c.req.query('gpuCount');
     const replicasParam = c.req.query('replicas');
+    const useRealtime = c.req.query('realtime') !== 'false'; // Default to realtime
 
     const gpuCount = gpuCountParam ? parseInt(gpuCountParam, 10) : 1;
     const replicas = replicasParam ? parseInt(replicasParam, 10) : 1;
@@ -42,17 +44,96 @@ export const costsRoutes = new Hono()
     // Get detailed cluster capacity with node pool info
     const capacity = await kubernetesService.getDetailedClusterGpuCapacity();
 
-    // Estimate costs for each node pool
-    const nodePoolCosts: NodePoolCostEstimate[] = costEstimationService.estimateNodePoolCosts(
-      capacity.nodePools,
-      gpuCount,
-      replicas
-    );
+    // Try real-time pricing first, fall back to static
+    const nodePoolCosts: Array<NodePoolCostEstimate & { realtimePricing?: {
+      instanceType: string;
+      hourlyPrice: number;
+      monthlyPrice: number;
+      currency: string;
+      region?: string;
+      source: 'realtime' | 'cached';
+    } }> = [];
+
+    for (const pool of capacity.nodePools) {
+      // Start with static estimate as fallback
+      const staticEstimate = costEstimationService.estimateNodePoolCosts([pool], gpuCount, replicas)[0];
+
+      if (useRealtime && pool.instanceType) {
+        // Try to get real-time pricing
+        const provider = cloudPricingService.detectProvider(pool.instanceType);
+        if (provider) {
+          const result = await cloudPricingService.getInstancePrice(
+            pool.instanceType,
+            provider,
+            pool.region
+          );
+
+          if (result.success && result.price) {
+            const totalGpus = gpuCount * replicas;
+            const hourlyPrice = result.price.hourlyPrice * replicas; // Full VM cost per replica
+            const monthlyPrice = hourlyPrice * 730;
+
+            nodePoolCosts.push({
+              ...staticEstimate,
+              realtimePricing: {
+                instanceType: pool.instanceType,
+                hourlyPrice: Math.round(hourlyPrice * 100) / 100,
+                monthlyPrice: Math.round(monthlyPrice * 100) / 100,
+                currency: result.price.currency,
+                region: result.price.region,
+                source: result.cached ? 'cached' : 'realtime',
+              },
+            });
+            continue;
+          }
+        }
+      }
+
+      // Fall back to static estimate
+      nodePoolCosts.push(staticEstimate);
+    }
 
     return c.json({
       success: true,
       nodePoolCosts,
-      pricingLastUpdated: costEstimationService.getPricingLastUpdated(),
+      pricingSource: useRealtime ? 'realtime-with-fallback' : 'static',
+      cacheStats: cloudPricingService.getCacheStats(),
+    });
+  })
+
+  /**
+   * Get real-time pricing for a specific instance type
+   */
+  .get('/instance-price', async (c) => {
+    const instanceType = c.req.query('instanceType');
+    const region = c.req.query('region');
+
+    if (!instanceType) {
+      return c.json({ success: false, error: 'instanceType is required' }, 400);
+    }
+
+    const provider = cloudPricingService.detectProvider(instanceType);
+    if (!provider) {
+      return c.json({
+        success: false,
+        error: `Could not detect cloud provider for instance type: ${instanceType}`,
+      }, 400);
+    }
+
+    const result = await cloudPricingService.getInstancePrice(instanceType, provider, region);
+
+    if (!result.success) {
+      return c.json({
+        success: false,
+        error: result.error,
+        provider,
+      }, 404);
+    }
+
+    return c.json({
+      success: true,
+      price: result.price,
+      cached: result.cached,
     });
   })
 
@@ -94,4 +175,12 @@ export const costsRoutes = new Hono()
           }
         : null,
     });
+  })
+
+  /**
+   * Clear pricing cache (admin endpoint)
+   */
+  .post('/clear-cache', (c) => {
+    cloudPricingService.clearCache();
+    return c.json({ success: true, message: 'Pricing cache cleared' });
   });

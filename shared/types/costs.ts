@@ -68,6 +68,28 @@ export interface CostBreakdown {
 }
 
 /**
+ * Real-time pricing from cloud provider API
+ */
+export interface RealtimePricing {
+  /** Instance type (e.g., Standard_NV36ads_A10_v5) */
+  instanceType: string;
+  /** Hourly price in USD */
+  hourlyPrice: number;
+  /** Monthly price in USD (hourly × 730) */
+  monthlyPrice: number;
+  /** Currency (always USD) */
+  currency: string;
+  /** Cloud region */
+  region?: string;
+  /** Pricing source (realtime, cached, static) */
+  source: 'realtime' | 'cached' | 'static';
+  /** GPU count for this instance type */
+  gpuCount?: number;
+  /** GPU model for this instance type */
+  gpuModel?: string;
+}
+
+/**
  * Cost estimate per node pool
  */
 export interface NodePoolCostEstimate {
@@ -77,8 +99,10 @@ export interface NodePoolCostEstimate {
   gpuModel: string;
   /** Number of GPUs available in this pool */
   availableGpus: number;
-  /** Cost breakdown for this pool */
+  /** Cost breakdown for this pool (static pricing fallback) */
   costBreakdown: CostBreakdown;
+  /** Real-time pricing from cloud provider API (preferred if available) */
+  realtimePricing?: RealtimePricing;
 }
 
 /**

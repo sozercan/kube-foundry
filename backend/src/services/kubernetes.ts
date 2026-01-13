@@ -817,6 +817,8 @@ class KubernetesService {
         nodeCount: number;
         availableGpus: number;
         gpuModel?: string;
+        instanceType?: string;
+        region?: string;
       }>();
 
       for (const node of nodesResponse.body.items) {
@@ -843,6 +845,16 @@ class KubernetesService {
               this.extractGpuModelFromInstanceType(node.metadata?.labels) ||
               node.metadata?.labels?.['accelerator'];
 
+            // Get instance type from standard Kubernetes labels
+            const instanceType =
+              node.metadata?.labels?.['node.kubernetes.io/instance-type'] ||
+              node.metadata?.labels?.['beta.kubernetes.io/instance-type'];
+
+            // Get region from labels
+            const region =
+              node.metadata?.labels?.['topology.kubernetes.io/region'] ||
+              node.metadata?.labels?.['failure-domain.beta.kubernetes.io/region'];
+
             // Find available GPUs for this node
             const nodeInfo = basicCapacity.nodes.find(n => n.nodeName === nodeName);
             const nodeAvailableGpus = nodeInfo?.availableGpus || 0;
@@ -853,6 +865,8 @@ class KubernetesService {
                 nodeCount: 0,
                 availableGpus: 0,
                 gpuModel,
+                instanceType,
+                region,
               });
             }
 
@@ -864,6 +878,14 @@ class KubernetesService {
             // Update GPU model if not set or if we find a more specific one
             if (!poolInfo.gpuModel && gpuModel) {
               poolInfo.gpuModel = gpuModel;
+            }
+            // Update instance type if not set
+            if (!poolInfo.instanceType && instanceType) {
+              poolInfo.instanceType = instanceType;
+            }
+            // Update region if not set
+            if (!poolInfo.region && region) {
+              poolInfo.region = region;
             }
           }
         }
@@ -878,6 +900,8 @@ class KubernetesService {
           nodeCount: info.nodeCount,
           availableGpus: info.availableGpus,
           gpuModel: info.gpuModel,
+          instanceType: info.instanceType,
+          region: info.region,
         });
       }
 

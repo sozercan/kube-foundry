@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { DollarSign, TrendingUp, Info, AlertCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { DollarSign, Info, AlertCircle, Loader2, Zap } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -8,7 +8,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import type { NodePoolInfo, CostBreakdown, CloudProvider } from '@/lib/api'
+import type { NodePoolInfo, NodePoolCostEstimate, CostBreakdown, CloudProvider } from '@/lib/api'
+import { costsApi } from '@/lib/api'
 
 // GPU pricing data (embedded for client-side calculation)
 // This mirrors the backend pricing for instant UI updates
@@ -148,6 +149,7 @@ interface CostEstimateProps {
 
 /**
  * Display cost estimates for GPU deployments
+ * Fetches real-time pricing from cloud provider APIs with static fallback
  */
 export function CostEstimate({
   nodePools,
@@ -156,21 +158,54 @@ export function CostEstimate({
   compact = false,
   className = '',
 }: CostEstimateProps) {
-  // Calculate costs for each node pool
-  const poolCosts = useMemo(() => {
-    if (!nodePools || nodePools.length === 0) return []
+  const [nodePoolCosts, setNodePoolCosts] = useState<NodePoolCostEstimate[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [pricingSource, setPricingSource] = useState<string>('')
 
-    return nodePools
-      .filter((pool) => pool.gpuModel)
-      .map((pool) => ({
-        pool,
-        cost: calculateCost(pool.gpuModel!, gpuCount, replicas),
-      }))
-      .filter((item) => item.cost !== null)
+  // Fetch real-time pricing from backend API
+  useEffect(() => {
+    if (!nodePools || nodePools.length === 0) return
+
+    const fetchPricing = async () => {
+      setIsLoading(true)
+      try {
+        const response = await costsApi.getNodePoolCosts(gpuCount, replicas)
+        if (response.success && response.nodePoolCosts) {
+          setNodePoolCosts(response.nodePoolCosts)
+          setPricingSource((response as unknown as { pricingSource?: string }).pricingSource || 'static')
+        }
+      } catch (error) {
+        console.error('Failed to fetch real-time pricing:', error)
+        // Fall back to client-side static calculation
+        const fallbackCosts = nodePools
+          .filter((pool) => pool.gpuModel)
+          .map((pool) => ({
+            poolName: pool.name,
+            gpuModel: pool.gpuModel!,
+            availableGpus: pool.availableGpus ?? 0,
+            costBreakdown: calculateCost(pool.gpuModel!, gpuCount, replicas)!,
+          }))
+          .filter((item) => item.costBreakdown !== null)
+        setNodePoolCosts(fallbackCosts)
+        setPricingSource('static-client')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchPricing()
   }, [nodePools, gpuCount, replicas])
 
   // If no pools with GPU info, show nothing
-  if (poolCosts.length === 0) {
+  if (!nodePools || nodePools.length === 0 || nodePoolCosts.length === 0) {
+    if (isLoading) {
+      return (
+        <div className={`flex items-center gap-2 text-sm text-muted-foreground ${className}`}>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Loading pricing...</span>
+        </div>
+      )
+    }
     return null
   }
 
@@ -184,31 +219,65 @@ export function CostEstimate({
     }).format(amount)
   }
 
+  // Helper to get best pricing (realtime preferred)
+  const getBestPricing = (poolCost: NodePoolCostEstimate) => {
+    if (poolCost.realtimePricing) {
+      return {
+        hourly: poolCost.realtimePricing.hourlyPrice,
+        monthly: poolCost.realtimePricing.monthlyPrice,
+        source: poolCost.realtimePricing.source,
+        instanceType: poolCost.realtimePricing.instanceType,
+        region: poolCost.realtimePricing.region,
+      }
+    }
+    return {
+      hourly: poolCost.costBreakdown.estimate.hourly,
+      monthly: poolCost.costBreakdown.estimate.monthly,
+      source: 'static' as const,
+      instanceType: undefined,
+      region: undefined,
+    }
+  }
+
   // Compact view - just show primary estimate
   if (compact) {
-    const primaryCost = poolCosts[0]?.cost
+    const primaryCost = nodePoolCosts[0]
     if (!primaryCost) return null
+
+    const pricing = getBestPricing(primaryCost)
+    const isRealtime = pricing.source === 'realtime' || pricing.source === 'cached'
 
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
             <div className={`flex items-center gap-1.5 text-sm text-muted-foreground ${className}`}>
-              <DollarSign className="h-4 w-4" />
+              {isRealtime && <Zap className="h-4 w-4 text-green-500" />}
+              {!isRealtime && <DollarSign className="h-4 w-4" />}
               <span>
-                ~{formatCurrency(primaryCost.estimate.hourly)}/hr
+                ~{formatCurrency(pricing.hourly)}/hr
               </span>
               <span className="text-xs">
-                ({formatCurrency(primaryCost.estimate.monthly)}/mo)
+                ({formatCurrency(pricing.monthly)}/mo)
               </span>
+              {isLoading && <Loader2 className="h-3 w-3 animate-spin" />}
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-xs">
             <div className="space-y-1 text-xs">
               <p className="font-medium">
-                {primaryCost.totalGpus} × {primaryCost.normalizedGpuModel}
+                {primaryCost.availableGpus} × {primaryCost.gpuModel}
               </p>
-              <p>Based on average cloud provider rates</p>
+              {pricing.instanceType && (
+                <p className="text-green-600 dark:text-green-400">
+                  {pricing.instanceType} ({pricing.region})
+                </p>
+              )}
+              <p>
+                {isRealtime 
+                  ? 'Real-time Azure pricing' 
+                  : 'Based on average cloud provider rates'}
+              </p>
               <p className="text-muted-foreground">Spot instances can be 60-80% cheaper</p>
             </div>
           </TooltipContent>
@@ -224,6 +293,13 @@ export function CostEstimate({
         <CardTitle className="text-base flex items-center gap-2">
           <DollarSign className="h-4 w-4" />
           Estimated Cost
+          {pricingSource.includes('realtime') && (
+            <Badge variant="secondary" className="text-xs font-normal gap-1">
+              <Zap className="h-3 w-3" />
+              Live
+            </Badge>
+          )}
+          {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger>
@@ -231,77 +307,94 @@ export function CostEstimate({
               </TooltipTrigger>
               <TooltipContent side="right" className="max-w-xs">
                 <p className="text-xs">
-                  Estimates based on average on-demand cloud rates.
-                  Actual costs vary by provider, region, and commitment level.
-                  Spot instances can save 60-80%.
+                  {pricingSource.includes('realtime')
+                    ? 'Real-time pricing from Azure Retail Prices API. Reflects current on-demand VM costs.'
+                    : 'Estimates based on average on-demand cloud rates.'}
+                  {' '}Actual costs vary by commitment level. Spot instances can save 60-80%.
                 </p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {poolCosts.map(({ pool, cost }) => (
-          <div key={pool.name} className="space-y-2">
-            {poolCosts.length > 1 && (
+      <CardContent className="space-y-4">
+        {nodePoolCosts.map((poolCost) => {
+          const pricing = getBestPricing(poolCost)
+          const isRealtime = pricing.source === 'realtime' || pricing.source === 'cached'
+          const cost = poolCost.costBreakdown
+
+          return (
+            <div key={poolCost.poolName} className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">{pool.name}</span>
-                <Badge variant="outline" className="text-xs">
-                  {cost!.normalizedGpuModel}
-                </Badge>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Hourly</p>
-                <p className="text-lg font-semibold" data-testid="hourly-cost">
-                  {formatCurrency(cost!.estimate.hourly)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Monthly (24/7)</p>
-                <p className="text-lg font-semibold" data-testid="monthly-cost">
-                  {formatCurrency(cost!.estimate.monthly)}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <TrendingUp className="h-3 w-3" />
-              <span>
-                {cost!.totalGpus} GPU{cost!.totalGpus > 1 ? 's' : ''} × {formatCurrency(cost!.perGpu.hourly)}/GPU/hr
-              </span>
-            </div>
-
-            {/* Provider breakdown */}
-            {cost!.byProvider && cost!.byProvider.length > 0 && (
-              <div className="pt-2 border-t">
-                <p className="text-xs text-muted-foreground mb-1.5">By Provider</p>
-                <div className="flex flex-wrap gap-2">
-                  {cost!.byProvider.map((provider) => (
-                    <Badge key={provider.provider} variant="secondary" className="text-xs font-normal">
-                      {provider.provider.toUpperCase()}: {formatCurrency(provider.hourly)}/hr
+                <span className="text-sm font-medium">{poolCost.poolName}</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {poolCost.gpuModel}
+                  </Badge>
+                  {isRealtime && (
+                    <Badge variant="secondary" className="text-xs font-normal text-green-600 dark:text-green-400">
+                      Live
                     </Badge>
-                  ))}
+                  )}
                 </div>
               </div>
-            )}
 
-            {/* Low confidence warning */}
-            {cost!.estimate.confidence === 'low' && (
-              <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                <AlertCircle className="h-3 w-3" />
-                <span>Limited pricing data available for this GPU</span>
+              {/* Instance type info for realtime pricing */}
+              {pricing.instanceType && (
+                <div className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Zap className="h-3 w-3 text-green-500" />
+                  <span>{pricing.instanceType}</span>
+                  {pricing.region && <span className="text-muted-foreground">({pricing.region})</span>}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Hourly</p>
+                  <p className="text-lg font-semibold" data-testid="hourly-cost">
+                    {formatCurrency(pricing.hourly)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Monthly (24/7)</p>
+                  <p className="text-lg font-semibold" data-testid="monthly-cost">
+                    {formatCurrency(pricing.monthly)}
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
-        ))}
+
+              {/* Show static provider breakdown only if no realtime pricing */}
+              {!isRealtime && cost.byProvider && cost.byProvider.length > 0 && (
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground mb-1.5">By Provider (Static Estimates)</p>
+                  <div className="flex flex-wrap gap-2">
+                    {cost.byProvider.map((provider) => (
+                      <Badge key={provider.provider} variant="secondary" className="text-xs font-normal">
+                        {provider.provider.toUpperCase()}: {formatCurrency(provider.hourly)}/hr
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Low confidence warning */}
+              {!isRealtime && cost.estimate.confidence === 'low' && (
+                <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="h-3 w-3" />
+                  <span>Limited pricing data available for this GPU</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
 
         {/* Notes */}
         <div className="pt-2 border-t text-xs text-muted-foreground space-y-0.5">
           <p>• Spot/preemptible instances can save 60-80%</p>
           <p>• Reserved instances (1-3 yr) can save 30-60%</p>
+          {pricingSource.includes('realtime') && (
+            <p className="text-green-600 dark:text-green-400">• Prices from Azure Retail Prices API</p>
+          )}
         </div>
       </CardContent>
     </Card>

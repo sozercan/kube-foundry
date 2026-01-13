@@ -689,6 +689,7 @@ export type {
   CostEstimateRequest,
   CostEstimateResponse,
   NodePoolCostEstimate,
+  RealtimePricing,
   GpuPricing,
   CloudProvider,
 } from '@kubefoundry/shared';
