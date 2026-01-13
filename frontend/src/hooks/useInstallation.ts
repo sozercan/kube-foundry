@@ -36,6 +36,7 @@ export function useInstallProvider() {
       queryClient.invalidateQueries({ queryKey: ['provider-installation-status', providerId] })
       queryClient.invalidateQueries({ queryKey: ['cluster-status'] })
       queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['runtimes-status'] })
     },
   })
 }
@@ -48,6 +49,7 @@ export function useUpgradeProvider() {
     onSuccess: (_, providerId) => {
       queryClient.invalidateQueries({ queryKey: ['provider-installation-status', providerId] })
       queryClient.invalidateQueries({ queryKey: ['cluster-status'] })
+      queryClient.invalidateQueries({ queryKey: ['runtimes-status'] })
     },
   })
 }
@@ -60,6 +62,7 @@ export function useUninstallProvider() {
     onSuccess: (_, providerId) => {
       queryClient.invalidateQueries({ queryKey: ['provider-installation-status', providerId] })
       queryClient.invalidateQueries({ queryKey: ['cluster-status'] })
+      queryClient.invalidateQueries({ queryKey: ['runtimes-status'] })
     },
   })
 }

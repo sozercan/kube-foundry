@@ -20,6 +20,7 @@ import {
 import { useAutoscalerDetection, usePendingReasons } from '@/hooks/useAutoscaler'
 import { PendingExplanation } from '@/components/deployments/PendingExplanation'
 import { DeploymentLogs } from '@/components/deployments/DeploymentLogs'
+import { ManifestViewer } from '@/components/deployments/ManifestViewer'
 
 export function DeploymentDetailsPage() {
   const { name } = useParams<{ name: string }>()
@@ -228,6 +229,14 @@ export function DeploymentDetailsPage() {
 
       {/* Metrics */}
       <MetricsTab
+        deploymentName={deployment.name}
+        namespace={deployment.namespace}
+        provider={deployment.provider}
+      />
+
+      {/* Manifest */}
+      <ManifestViewer
+        mode="deployed"
         deploymentName={deployment.name}
         namespace={deployment.namespace}
         provider={deployment.provider}

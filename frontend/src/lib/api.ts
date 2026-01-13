@@ -262,6 +262,20 @@ export const deploymentsApi = {
       body: JSON.stringify(config),
     }),
 
+  preview: (config: DeploymentConfig) =>
+    request<{ 
+      resources: Array<{
+        kind: string;
+        apiVersion: string;
+        name: string;
+        manifest: Record<string, unknown>;
+      }>;
+      primaryResource: { kind: string; apiVersion: string };
+    }>('/deployments/preview', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+
   delete: (name: string, namespace?: string) =>
     request<{ message: string }>(
       `/deployments/${encodeURIComponent(name)}${namespace ? `?namespace=${encodeURIComponent(namespace)}` : ''}`,
@@ -290,6 +304,22 @@ export const deploymentsApi = {
       `/deployments/${encodeURIComponent(name)}/logs${query ? `?${query}` : ''}`
     );
   },
+
+  getManifest: (name: string, namespace?: string) =>
+    request<{
+      resources: Array<{
+        kind: string;
+        apiVersion: string;
+        name: string;
+        manifest: Record<string, unknown>;
+      }>;
+      primaryResource: {
+        kind: string;
+        apiVersion: string;
+      };
+    }>(
+      `/deployments/${encodeURIComponent(name)}/manifest${namespace ? `?namespace=${encodeURIComponent(namespace)}` : ''}`
+    ),
 };
 
 // ============================================================================

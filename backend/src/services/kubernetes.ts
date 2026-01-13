@@ -267,6 +267,64 @@ class KubernetesService {
     }
   }
 
+  /**
+   * Get the raw Custom Resource manifest for a deployment
+   * Returns the full CR object as stored in Kubernetes
+   */
+  async getDeploymentManifest(name: string, namespace: string, providerId?: string): Promise<Record<string, unknown> | null> {
+    // If provider is specified, only check that provider
+    if (providerId) {
+      return this.getDeploymentManifestFromProvider(name, namespace, providerId);
+    }
+
+    // Try all providers until we find the deployment
+    const allProviders = providerRegistry.listProviderIds();
+    for (const pid of allProviders) {
+      const manifest = await this.getDeploymentManifestFromProvider(name, namespace, pid);
+      if (manifest) {
+        return manifest;
+      }
+    }
+
+    logger.debug({ name, namespace }, 'Deployment manifest not found in any provider');
+    return null;
+  }
+
+  /**
+   * Get the raw CR manifest from a specific provider
+   */
+  private async getDeploymentManifestFromProvider(
+    name: string,
+    namespace: string,
+    providerId: string
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      const provider = providerRegistry.getProvider(providerId);
+      const crdConfig = provider.getCRDConfig();
+
+      const response = await withRetry(
+        () => this.customObjectsApi.getNamespacedCustomObject(
+          crdConfig.apiGroup,
+          crdConfig.apiVersion,
+          namespace,
+          crdConfig.plural,
+          name
+        ),
+        { operationName: `getDeploymentManifest:${providerId}` }
+      );
+
+      return response.body as Record<string, unknown>;
+    } catch (error: any) {
+      const statusCode = error?.statusCode || error?.response?.statusCode;
+      if (statusCode === 404) {
+        // Not found in this provider, will try others
+        return null;
+      }
+      logger.error({ error, name, namespace, providerId }, 'Error getting deployment manifest from provider');
+      return null;
+    }
+  }
+
   async createDeployment(config: DeploymentConfig, providerId?: string): Promise<void> {
     // Get the provider - prefer config.provider, then explicit providerId, then fall back to active provider
     const resolvedProviderId = config.provider || providerId || await configService.getActiveProviderId();
