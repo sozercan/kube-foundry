@@ -645,6 +645,15 @@ describe('KaitoProvider', () => {
       expect(installStep).toBeDefined();
       expect(installStep?.command).toContain('--set gpu-feature-discovery.enabled=false');
       expect(installStep?.command).toContain('--set localCSIDriver.useLocalCSIDriver=false');
+      expect(installStep?.command).toContain('--skip-crds');
+    });
+
+    test('installation steps include kubectl apply for KAITO CRDs', () => {
+      const steps = provider.getInstallationSteps();
+      const crdStep = steps.find(s => s.command?.includes('kubectl apply'));
+      expect(crdStep).toBeDefined();
+      expect(crdStep?.command).toContain('kaito.sh_workspaces.yaml');
+      expect(crdStep?.command).toContain('kaito.sh_inferencesets.yaml');
     });
 
     test('getHelmRepos returns kaito repo', () => {
@@ -685,6 +694,15 @@ describe('KaitoProvider', () => {
       expect(charts[0].values?.localCSIDriver).toBeDefined();
       const csiConfig = charts[0].values?.localCSIDriver as Record<string, unknown>;
       expect(csiConfig?.useLocalCSIDriver).toBe(false);
+    });
+
+    test('getHelmCharts uses skipCrds and preCrdUrls to avoid NFD conflicts', () => {
+      const charts = provider.getHelmCharts();
+      expect(charts[0].skipCrds).toBe(true);
+      expect(charts[0].preCrdUrls).toBeDefined();
+      expect(charts[0].preCrdUrls?.length).toBe(2);
+      expect(charts[0].preCrdUrls?.[0]).toContain('kaito.sh_workspaces.yaml');
+      expect(charts[0].preCrdUrls?.[1]).toContain('kaito.sh_inferencesets.yaml');
     });
   });
 

@@ -147,6 +147,95 @@ class HelmService {
   }
 
   /**
+   * Execute a kubectl command
+   */
+  private async executeKubectl(
+    args: string[],
+    onStream?: StreamCallback,
+    timeoutMs: number = 60000 // 1 minute default timeout for kubectl
+  ): Promise<HelmResult> {
+    return new Promise((resolve) => {
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+      const startTime = Date.now();
+      const kubectlPath = process.env.KUBECTL_PATH || 'kubectl';
+      const fullCommand = `${kubectlPath} ${args.join(' ')}`;
+
+      logger.info({ command: fullCommand, timeoutMs }, `Executing kubectl command`);
+
+      const proc = spawn(kubectlPath, args, {
+        env: { ...process.env },
+        shell: false,
+      });
+
+      // Set timeout
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        proc.kill('SIGTERM');
+      }, timeoutMs);
+
+      proc.stdout.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stdout += text;
+        if (onStream) {
+          onStream(text, 'stdout');
+        }
+      });
+
+      proc.stderr.on('data', (data: Buffer) => {
+        const text = data.toString();
+        stderr += text;
+        if (onStream) {
+          onStream(text, 'stderr');
+        }
+      });
+
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        const durationMs = Date.now() - startTime;
+        const durationSec = (durationMs / 1000).toFixed(1);
+        
+        if (timedOut) {
+          logger.error({ command: fullCommand, durationSec }, `kubectl command timed out after ${durationSec}s`);
+          resolve({
+            success: false,
+            stdout,
+            stderr: stderr + `\nCommand timed out after ${timeoutMs / 1000} seconds`,
+            exitCode: null,
+          });
+        } else if (code === 0) {
+          logger.info({ command: fullCommand, durationSec }, `kubectl command completed successfully in ${durationSec}s`);
+          resolve({
+            success: true,
+            stdout,
+            stderr,
+            exitCode: code,
+          });
+        } else {
+          logger.error({ command: fullCommand, exitCode: code, durationSec, stderr: stderr.slice(-500) }, `kubectl command failed with exit code ${code} after ${durationSec}s`);
+          resolve({
+            success: false,
+            stdout,
+            stderr,
+            exitCode: code,
+          });
+        }
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timeout);
+        resolve({
+          success: false,
+          stdout,
+          stderr: `Failed to execute kubectl: ${err.message}`,
+          exitCode: null,
+        });
+      });
+    });
+  }
+
+  /**
    * Check if Helm is available
    */
   async checkHelmAvailable(): Promise<{ available: boolean; version?: string; error?: string }> {
@@ -275,11 +364,16 @@ class HelmService {
       args.push('--set-json', JSON.stringify(chart.values));
     }
 
+    // Skip CRDs if specified (useful when CRDs already exist from another operator)
+    if (chart.skipCrds) {
+      args.push('--skip-crds');
+    }
+
     // Don't use --wait - return immediately after submitting the install
     // The caller should poll for installation status updates
     // Timeout still applies to the install command itself
     
-    logger.info({ chart: chart.name, namespace: chart.namespace, version: chart.version, values: chart.values }, `Installing helm chart: ${chart.name}`);
+    logger.info({ chart: chart.name, namespace: chart.namespace, version: chart.version, values: chart.values, skipCrds: chart.skipCrds }, `Installing helm chart: ${chart.name}`);
 
     return this.execute(args, onStream);
   }
@@ -444,6 +538,20 @@ class HelmService {
 
     // Install charts
     for (const chart of charts) {
+      // Apply pre-CRD URLs if specified (for installing specific CRDs before the chart when skipCrds is used)
+      if (chart.preCrdUrls && chart.preCrdUrls.length > 0) {
+        for (const crdUrl of chart.preCrdUrls) {
+          if (onStream) {
+            onStream(`Applying CRD from: ${crdUrl}\n`, 'stdout');
+          }
+          const kubectlResult = await this.executeKubectl(['apply', '-f', crdUrl], onStream);
+          results.push({ step: `apply-crd-${crdUrl.split('/').pop()}`, result: kubectlResult });
+          if (!kubectlResult.success) {
+            return { success: false, results };
+          }
+        }
+      }
+
       if (onStream) {
         onStream(`Installing chart: ${chart.chart}\n`, 'stdout');
       }

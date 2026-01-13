@@ -536,6 +536,8 @@ export class KaitoProvider implements Provider {
   }
 
   getInstallationSteps(): InstallationStep[] {
+    const kaitoCrdBaseUrl = `https://raw.githubusercontent.com/kaito-project/kaito/v${KAITO_VERSION}/charts/kaito/workspace/crds`;
+    
     return [
       {
         title: 'Add KAITO Helm Repository',
@@ -548,9 +550,14 @@ export class KaitoProvider implements Provider {
         description: 'Update local Helm repository cache.',
       },
       {
+        title: 'Apply KAITO CRDs',
+        command: `kubectl apply -f ${kaitoCrdBaseUrl}/kaito.sh_workspaces.yaml -f ${kaitoCrdBaseUrl}/kaito.sh_inferencesets.yaml`,
+        description: 'Apply KAITO-specific CRDs. We skip bundled CRDs to avoid conflicts with NVIDIA GPU Operator.',
+      },
+      {
         title: 'Install KAITO Workspace Operator',
-        command: `helm upgrade --install kaito-workspace kaito/workspace --version ${KAITO_VERSION} -n kaito-workspace --create-namespace --set featureGates.disableNodeAutoProvisioning=true --set localCSIDriver.useLocalCSIDriver=false --set gpu-feature-discovery.enabled=false --wait`,
-        description: `Install the KAITO workspace operator v${KAITO_VERSION} with Node Auto-Provisioning disabled (BYO nodes mode). Local CSI Driver and GPU Feature Discovery are disabled as they're provided by the NVIDIA GPU Operator.`,
+        command: `helm upgrade --install kaito-workspace kaito/workspace --version ${KAITO_VERSION} -n kaito-workspace --create-namespace --skip-crds --set featureGates.disableNodeAutoProvisioning=true --set localCSIDriver.useLocalCSIDriver=false --set gpu-feature-discovery.enabled=false --wait`,
+        description: `Install the KAITO workspace operator v${KAITO_VERSION} with --skip-crds (CRDs applied separately). Node Auto-Provisioning disabled (BYO nodes mode). Local CSI Driver and GPU Feature Discovery are disabled as they're provided by the NVIDIA GPU Operator.`,
       },
     ];
   }
@@ -565,6 +572,10 @@ export class KaitoProvider implements Provider {
   }
 
   getHelmCharts(): HelmChart[] {
+    // KAITO CRD URLs - we apply only the KAITO-specific CRDs and skip the bundled CRDs
+    // which include NFD CRDs that conflict with NVIDIA GPU Operator
+    const kaitoCrdBaseUrl = `https://raw.githubusercontent.com/kaito-project/kaito/v${KAITO_VERSION}/charts/kaito/workspace/crds`;
+    
     return [
       {
         name: 'kaito-workspace',
@@ -572,6 +583,13 @@ export class KaitoProvider implements Provider {
         version: KAITO_VERSION,
         namespace: 'kaito-workspace',
         createNamespace: true,
+        // Skip bundled CRDs (includes NFD CRDs that conflict with GPU Operator)
+        skipCrds: true,
+        // Apply only KAITO-specific CRDs before helm install
+        preCrdUrls: [
+          `${kaitoCrdBaseUrl}/kaito.sh_workspaces.yaml`,
+          `${kaitoCrdBaseUrl}/kaito.sh_inferencesets.yaml`,
+        ],
         values: {
           featureGates: {
             disableNodeAutoProvisioning: true,
