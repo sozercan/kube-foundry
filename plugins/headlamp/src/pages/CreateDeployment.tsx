@@ -165,11 +165,11 @@ export function CreateDeployment() {
   // Set initial runtime selection only once when data first loads
   useEffect(() => {
     if (model && runtimes.length > 0 && !hasSetInitialRuntime) {
-      // Select best runtime (prefer installed ones)
+      // Select best runtime (prefer healthy/running ones)
       const compatibleRuntimes: RuntimeId[] = ['dynamo', 'kuberay', 'kaito'];
       for (const rtId of compatibleRuntimes) {
         const rt = runtimes.find((r) => r.id === rtId);
-        if (rt?.installed && isRuntimeCompatible(rtId, model.supportedEngines)) {
+        if (rt?.healthy && isRuntimeCompatible(rtId, model.supportedEngines)) {
           setSelectedRuntime(rtId);
           setNamespace(RUNTIME_INFO[rtId].defaultNamespace);
           // Select best engine for this runtime
@@ -281,7 +281,8 @@ export function CreateDeployment() {
   }
 
   const selectedRuntimeInfo = runtimes.find((r) => r.id === selectedRuntime);
-  const isRuntimeInstalled = selectedRuntimeInfo?.installed ?? false;
+  // Use 'healthy' to check if operator is running, not just CRDs installed
+  const isRuntimeInstalled = selectedRuntimeInfo?.healthy ?? false;
 
   return (
     <SectionBox title="Deploy Model">
@@ -389,7 +390,8 @@ export function CreateDeployment() {
           {(['dynamo', 'kuberay', 'kaito'] as const).map((rtId) => {
             const info = RUNTIME_INFO[rtId];
             const rtStatus = runtimes.find((r) => r.id === rtId);
-            const isInstalled = rtStatus?.installed ?? false;
+            // Use 'healthy' to check if operator is running, not just CRDs installed
+            const isInstalled = rtStatus?.healthy ?? false;
             const isCompatible = isRuntimeCompatible(rtId, model.supportedEngines);
             const isSelected = selectedRuntime === rtId;
             // Only disable if not compatible - allow clicking uninstalled runtimes
