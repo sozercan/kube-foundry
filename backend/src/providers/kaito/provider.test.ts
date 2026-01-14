@@ -25,9 +25,9 @@ describe('KaitoProvider', () => {
     test('returns correct CRD configuration', () => {
       const config = provider.getCRDConfig();
       expect(config.apiGroup).toBe('kaito.sh');
-      expect(config.apiVersion).toBe('v1beta1');
-      expect(config.plural).toBe('workspaces');
-      expect(config.kind).toBe('Workspace');
+      expect(config.apiVersion).toBe('v1alpha1');
+      expect(config.plural).toBe('inferencesets');
+      expect(config.kind).toBe('InferenceSet');
     });
   });
 
@@ -67,28 +67,28 @@ describe('KaitoProvider', () => {
       },
     };
 
-    test('generates valid Workspace manifest for premade model', () => {
+    test('generates valid InferenceSet manifest for premade model', () => {
       const manifest = provider.generateManifest(basePremadeConfig);
 
-      expect(manifest.apiVersion).toBe('kaito.sh/v1beta1');
-      expect(manifest.kind).toBe('Workspace');
+      expect(manifest.apiVersion).toBe('kaito.sh/v1alpha1');
+      expect(manifest.kind).toBe('InferenceSet');
       expect((manifest.metadata as any).name).toBe('test-deployment');
       expect((manifest.metadata as any).namespace).toBe('test-ns');
     });
 
-    test('generates valid Workspace manifest for HuggingFace model', () => {
+    test('generates valid InferenceSet manifest for HuggingFace model', () => {
       const manifest = provider.generateManifest(baseHuggingFaceConfig);
 
-      expect(manifest.apiVersion).toBe('kaito.sh/v1beta1');
-      expect(manifest.kind).toBe('Workspace');
+      expect(manifest.apiVersion).toBe('kaito.sh/v1alpha1');
+      expect(manifest.kind).toBe('InferenceSet');
       expect((manifest.metadata as any).name).toBe('hf-deployment');
     });
 
-    test('generates valid Workspace manifest for vLLM model', () => {
+    test('generates valid InferenceSet manifest for vLLM model', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
 
-      expect(manifest.apiVersion).toBe('kaito.sh/v1beta1');
-      expect(manifest.kind).toBe('Workspace');
+      expect(manifest.apiVersion).toBe('kaito.sh/v1alpha1');
+      expect(manifest.kind).toBe('InferenceSet');
       expect((manifest.metadata as any).name).toBe('vllm-deployment');
       expect((manifest.metadata as any).labels['kubefoundry.io/model-source']).toBe('vllm');
       expect((manifest.metadata as any).labels['kubefoundry.io/compute-type']).toBe('gpu');
@@ -96,13 +96,13 @@ describe('KaitoProvider', () => {
 
     test('vLLM manifest uses kaito-base image', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.image).toBe('mcr.microsoft.com/aks/kaito/kaito-base:0.1.1');
     });
 
     test('vLLM manifest has correct command and args', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.command).toEqual(['python']);
       expect(container.args).toContain('-m');
       expect(container.args).toContain('vllm.entrypoints.openai.api_server');
@@ -115,24 +115,24 @@ describe('KaitoProvider', () => {
 
     test('vLLM manifest uses port 8000', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.ports[0].containerPort).toBe(8000);
     });
 
     test('vLLM manifest includes GPU resources', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.resources.requests['nvidia.com/gpu']).toBe(2);
       expect(container.resources.limits['nvidia.com/gpu']).toBe(2);
     });
 
     test('vLLM manifest includes shared memory volume', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
-      const spec = (manifest.inference as any).template.spec;
-      expect(spec.volumes).toHaveLength(1);
-      expect(spec.volumes[0].name).toBe('dshm');
-      expect(spec.volumes[0].emptyDir.medium).toBe('Memory');
-      const container = spec.containers[0];
+      const templateSpec = (manifest.spec as any).template.inference.template.spec;
+      expect(templateSpec.volumes).toHaveLength(1);
+      expect(templateSpec.volumes[0].name).toBe('dshm');
+      expect(templateSpec.volumes[0].emptyDir.medium).toBe('Memory');
+      const container = templateSpec.containers[0];
       expect(container.volumeMounts).toHaveLength(1);
       expect(container.volumeMounts[0].mountPath).toBe('/dev/shm');
     });
@@ -140,7 +140,7 @@ describe('KaitoProvider', () => {
     test('vLLM manifest includes maxModelLen when provided', () => {
       const configWithMaxLen = { ...baseVllmConfig, maxModelLen: 4096 };
       const manifest = provider.generateManifest(configWithMaxLen);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.args).toContain('--max-model-len');
       expect(container.args).toContain('4096');
     });
@@ -148,7 +148,7 @@ describe('KaitoProvider', () => {
     test('vLLM manifest includes HF_TOKEN env when hfTokenSecret provided', () => {
       const configWithToken = { ...baseVllmConfig, hfTokenSecret: 'my-hf-secret' };
       const manifest = provider.generateManifest(configWithToken);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.env).toHaveLength(1);
       expect(container.env[0].name).toBe('HF_TOKEN');
       expect(container.env[0].valueFrom.secretKeyRef.name).toBe('my-hf-secret');
@@ -157,7 +157,7 @@ describe('KaitoProvider', () => {
 
     test('vLLM manifest includes probes', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.livenessProbe).toBeDefined();
       expect(container.livenessProbe.httpGet.port).toBe(8000);
       expect(container.livenessProbe.httpGet.path).toBe('/health');
@@ -175,14 +175,14 @@ describe('KaitoProvider', () => {
       expect(labels['kubefoundry.io/model-source']).toBe('premade');
     });
 
-    test('includes resource spec with replica count', () => {
+    test('includes spec with replica count', () => {
       const manifest = provider.generateManifest({ ...basePremadeConfig, replicas: 3 });
-      expect((manifest.resource as any).count).toBe(3);
+      expect((manifest.spec as any).replicas).toBe(3);
     });
 
-    test('includes inference template with container', () => {
+    test('includes template with container', () => {
       const manifest = provider.generateManifest(basePremadeConfig);
-      const containers = (manifest.inference as any).template.spec.containers;
+      const containers = (manifest.spec as any).template.inference.template.spec.containers;
       expect(containers).toHaveLength(1);
       expect(containers[0].name).toBe('model');
       expect(containers[0].image).toBeDefined();
@@ -191,14 +191,14 @@ describe('KaitoProvider', () => {
 
     test('uses premade model image from AIKit', () => {
       const manifest = provider.generateManifest(basePremadeConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       const premadeModel = aikitService.getPremadeModel('llama3.2:3b');
       expect(container.image).toBe(premadeModel?.image);
     });
 
     test('uses imageRef for HuggingFace models', () => {
       const manifest = provider.generateManifest(baseHuggingFaceConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.image).toBe(baseHuggingFaceConfig.imageRef);
     });
 
@@ -211,8 +211,8 @@ describe('KaitoProvider', () => {
         },
       };
       const manifest = provider.generateManifest(config);
-      expect((manifest.resource as any).labelSelector.matchLabels['kubernetes.io/arch']).toBe('amd64');
-      expect((manifest.resource as any).labelSelector.matchLabels['node-type']).toBe('ml');
+      expect((manifest.spec as any).labelSelector.matchLabels['kubernetes.io/arch']).toBe('amd64');
+      expect((manifest.spec as any).labelSelector.matchLabels['node-type']).toBe('ml');
     });
 
     test('CPU workload generates kubernetes.io/os: linux labelSelector by default', () => {
@@ -221,7 +221,7 @@ describe('KaitoProvider', () => {
         computeType: 'cpu' as const,
       };
       const manifest = provider.generateManifest(config);
-      expect((manifest.resource as any).labelSelector.matchLabels['kubernetes.io/os']).toBe('linux');
+      expect((manifest.spec as any).labelSelector.matchLabels['kubernetes.io/os']).toBe('linux');
     });
 
     test('GPU workload generates nvidia.com/gpu.present: true labelSelector by default', () => {
@@ -231,12 +231,12 @@ describe('KaitoProvider', () => {
         resources: { gpu: 1 },
       };
       const manifest = provider.generateManifest(config);
-      expect((manifest.resource as any).labelSelector.matchLabels['nvidia.com/gpu.present']).toBe('true');
+      expect((manifest.spec as any).labelSelector.matchLabels['nvidia.com/gpu.present']).toBe('true');
     });
 
     test('vLLM workload always generates nvidia.com/gpu.present: true labelSelector', () => {
       const manifest = provider.generateManifest(baseVllmConfig);
-      expect((manifest.resource as any).labelSelector.matchLabels['nvidia.com/gpu.present']).toBe('true');
+      expect((manifest.spec as any).labelSelector.matchLabels['nvidia.com/gpu.present']).toBe('true');
     });
 
     test('user-provided labelSelector overrides default GPU/CPU labels', () => {
@@ -250,8 +250,8 @@ describe('KaitoProvider', () => {
       };
       const manifest = provider.generateManifest(config);
       // Should use custom label, not nvidia.com/gpu.present
-      expect((manifest.resource as any).labelSelector.matchLabels['custom-label']).toBe('custom-value');
-      expect((manifest.resource as any).labelSelector.matchLabels['nvidia.com/gpu.present']).toBeUndefined();
+      expect((manifest.spec as any).labelSelector.matchLabels['custom-label']).toBe('custom-value');
+      expect((manifest.spec as any).labelSelector.matchLabels['nvidia.com/gpu.present']).toBeUndefined();
     });
 
     test('includes resource requests when specified', () => {
@@ -263,7 +263,7 @@ describe('KaitoProvider', () => {
         },
       };
       const manifest = provider.generateManifest(config);
-      const resources = (manifest.inference as any).template.spec.containers[0].resources;
+      const resources = (manifest.spec as any).template.inference.template.spec.containers[0].resources;
       expect(resources.requests.memory).toBe('16Gi');
       expect(resources.requests.cpu).toBe('8');
     });
@@ -278,14 +278,14 @@ describe('KaitoProvider', () => {
         },
       };
       const manifest = provider.generateManifest(config);
-      const resources = (manifest.inference as any).template.spec.containers[0].resources;
+      const resources = (manifest.spec as any).template.inference.template.spec.containers[0].resources;
       expect(resources.limits['nvidia.com/gpu']).toBe(2);
       expect(resources.requests.memory).toBe('32Gi');
     });
 
     test('includes container args for model server', () => {
       const manifest = provider.generateManifest(basePremadeConfig);
-      const container = (manifest.inference as any).template.spec.containers[0];
+      const container = (manifest.spec as any).template.inference.template.spec.containers[0];
       expect(container.args).toContain('run');
       expect(container.args.some((arg: string) => arg.includes('5000'))).toBe(true);
     });
@@ -303,23 +303,27 @@ describe('KaitoProvider', () => {
             'kubefoundry.io/model-source': 'premade',
           },
         },
-        resource: {
-          count: 2,
-        },
-        inference: {
+        spec: {
+          replicas: 2,
           template: {
-            spec: {
-              containers: [
-                {
-                  image: 'ghcr.io/kaito-project/aikit/llama-3.2:3b',
+            inference: {
+              template: {
+                spec: {
+                  containers: [
+                    {
+                      image: 'ghcr.io/kaito-project/aikit/llama-3.2:3b',
+                    },
+                  ],
                 },
-              ],
+              },
             },
           },
         },
         status: {
-          phase: 'Running',
-          workerNodes: ['node-1', 'node-2'],
+          readyReplicas: 2,
+          conditions: [
+            { type: 'Ready', status: 'True' },
+          ],
         },
       };
 
@@ -346,25 +350,29 @@ describe('KaitoProvider', () => {
             'kubefoundry.io/model-source': 'vllm',
           },
         },
-        resource: {
-          count: 1,
-        },
-        inference: {
+        spec: {
+          replicas: 1,
           template: {
-            spec: {
-              containers: [
-                {
-                  image: 'mcr.microsoft.com/aks/kaito/kaito-base:0.1.1',
-                  command: ['python'],
-                  args: ['-m', 'vllm.entrypoints.openai.api_server', '--model', 'mistralai/Mistral-7B-v0.1', '--tensor-parallel-size', '2'],
+            inference: {
+              template: {
+                spec: {
+                  containers: [
+                    {
+                      image: 'mcr.microsoft.com/aks/kaito/kaito-base:0.1.1',
+                      command: ['python'],
+                      args: ['-m', 'vllm.entrypoints.openai.api_server', '--model', 'mistralai/Mistral-7B-v0.1', '--tensor-parallel-size', '2'],
+                    },
+                  ],
                 },
-              ],
+              },
             },
           },
         },
         status: {
-          phase: 'Running',
-          workerNodes: ['node-1'],
+          readyReplicas: 1,
+          conditions: [
+            { type: 'Ready', status: 'True' },
+          ],
         },
       };
 
@@ -379,14 +387,18 @@ describe('KaitoProvider', () => {
     test('parses pending deployment', () => {
       const raw = {
         metadata: { name: 'pending-deploy', namespace: 'test-ns' },
-        resource: { count: 1 },
-        inference: {
+        spec: {
+          replicas: 1,
           template: {
-            spec: { containers: [{ image: 'test:latest' }] },
+            inference: {
+              template: {
+                spec: { containers: [{ image: 'test:latest' }] },
+              },
+            },
           },
         },
         status: {
-          phase: 'Pending',
+          readyReplicas: 0,
         },
       };
 
@@ -398,13 +410,16 @@ describe('KaitoProvider', () => {
     test('parses failed deployment', () => {
       const raw = {
         metadata: { name: 'failed-deploy' },
-        inference: {
+        spec: {
           template: {
-            spec: { containers: [{ image: 'test:latest' }] },
+            inference: {
+              template: {
+                spec: { containers: [{ image: 'test:latest' }] },
+              },
+            },
           },
         },
         status: {
-          phase: 'Failed',
           conditions: [
             {
               type: 'Ready',
@@ -417,7 +432,7 @@ describe('KaitoProvider', () => {
       };
 
       const status = provider.parseStatus(raw);
-      expect(status.phase).toBe('Failed');
+      expect(status.phase).toBe('Pending');  // No Ready=True condition
       expect(status.conditions).toHaveLength(1);
       expect(status.conditions[0].reason).toBe('ImagePullError');
     });
@@ -425,10 +440,14 @@ describe('KaitoProvider', () => {
     test('handles missing status', () => {
       const raw = {
         metadata: { name: 'no-status' },
-        resource: { count: 1 },
-        inference: {
+        spec: {
+          replicas: 1,
           template: {
-            spec: { containers: [{ image: 'test:latest' }] },
+            inference: {
+              template: {
+                spec: { containers: [{ image: 'test:latest' }] },
+              },
+            },
           },
         },
       };
@@ -439,30 +458,25 @@ describe('KaitoProvider', () => {
       expect(status.replicas.desired).toBe(1);
     });
 
-    test('maps various KAITO phases correctly', () => {
-      const testCases = [
-        { input: 'Running', expected: 'Running' },
-        { input: 'Ready', expected: 'Running' },
-        { input: 'Pending', expected: 'Pending' },
-        { input: 'Waiting', expected: 'Pending' },
-        { input: 'Creating', expected: 'Pending' },
-        { input: 'Deploying', expected: 'Deploying' },
-        { input: 'Provisioning', expected: 'Deploying' },
-        { input: 'Failed', expected: 'Failed' },
-        { input: 'Error', expected: 'Failed' },
-        { input: 'Terminating', expected: 'Terminating' },
-        { input: 'Deleting', expected: 'Terminating' },
-      ];
+    test('determines phase from Ready condition', () => {
+      // Ready=True means Running
+      const runningRaw = {
+        metadata: { name: 'test' },
+        spec: { template: { inference: { template: { spec: { containers: [{ image: 'test:latest' }] } } } } },
+        status: {
+          readyReplicas: 1,
+          conditions: [{ type: 'Ready', status: 'True' }],
+        },
+      };
+      expect(provider.parseStatus(runningRaw).phase).toBe('Running');
 
-      for (const { input, expected } of testCases) {
-        const raw = {
-          metadata: { name: 'test' },
-          inference: { template: { spec: { containers: [{ image: 'test:latest' }] } } },
-          status: { phase: input },
-        };
-        const status = provider.parseStatus(raw);
-        expect(status.phase).toBe(expected);
-      }
+      // No Ready condition or Ready=False means Pending
+      const pendingRaw = {
+        metadata: { name: 'test' },
+        spec: { template: { inference: { template: { spec: { containers: [{ image: 'test:latest' }] } } } } },
+        status: { readyReplicas: 0 },
+      };
+      expect(provider.parseStatus(pendingRaw).phase).toBe('Pending');
     });
 
     test('extracts model name from premade image', () => {
@@ -472,12 +486,19 @@ describe('KaitoProvider', () => {
           name: 'test',
           labels: { 'kubefoundry.io/model-source': 'premade' },
         },
-        inference: {
+        spec: {
           template: {
-            spec: { containers: [{ image: premadeModel?.image }] },
+            inference: {
+              template: {
+                spec: { containers: [{ image: premadeModel?.image }] },
+              },
+            },
           },
         },
-        status: { phase: 'Running' },
+        status: {
+          readyReplicas: 1,
+          conditions: [{ type: 'Ready', status: 'True' }],
+        },
       };
 
       const status = provider.parseStatus(raw);
@@ -652,12 +673,12 @@ describe('KaitoProvider', () => {
       const steps = provider.getInstallationSteps();
       const crdSteps = steps.filter(s => s.command?.includes('kubectl apply'));
       expect(crdSteps.length).toBe(2); // Karpenter CRDs and KAITO CRDs
-      
+
       // Karpenter CRDs (required by KAITO even with disableNodeAutoProvisioning)
       const karpenterCrdStep = crdSteps.find(s => s.command?.includes('karpenter.sh_nodeclaims.yaml'));
       expect(karpenterCrdStep).toBeDefined();
       expect(karpenterCrdStep?.command).toContain('karpenter.sh_nodepools.yaml');
-      
+
       // KAITO CRDs
       const kaitoCrdStep = crdSteps.find(s => s.command?.includes('kaito.sh_workspaces.yaml'));
       expect(kaitoCrdStep).toBeDefined();
