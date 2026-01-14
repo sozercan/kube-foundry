@@ -13,6 +13,11 @@ import {
   StatusLabel,
   StatusLabelProps,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import Chip from '@mui/material/Chip';
+import { Icon } from '@iconify/react';
 import { useApiClient } from '../lib/api-client';
 import type { DeploymentStatus, DeploymentPhase } from '@kubefoundry/shared';
 import { ConnectionError } from '../components/ConnectionBanner';
@@ -107,57 +112,76 @@ export function DeploymentsList() {
     {
       label: 'Name',
       getter: (item: DeploymentStatus) => (
-        <HeadlampLink routeName="Deployment Details" params={{ name: item.name, namespace: item.namespace }}>
-          {item.name}
-        </HeadlampLink>
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          <HeadlampLink routeName="Deployment Details" params={{ name: item.name, namespace: item.namespace }}>
+            {item.name}
+          </HeadlampLink>
+        </div>
       ),
     },
     {
       label: 'Namespace',
-      getter: (item: DeploymentStatus) => item.namespace,
+      getter: (item: DeploymentStatus) => (
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          {item.namespace}
+        </div>
+      ),
     },
     {
       label: 'Model',
-      getter: (item: DeploymentStatus) => item.modelId || '-',
+      getter: (item: DeploymentStatus) => (
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          {item.modelId || '-'}
+        </div>
+      ),
     },
     {
       label: 'Provider',
       getter: (item: DeploymentStatus) => (
-        <span
-          style={{
-            padding: '2px 8px',
-            borderRadius: '4px',
-            backgroundColor: getRuntimeColor(item.provider),
-            color: 'white',
-            fontSize: '12px',
-            fontWeight: 500,
-          }}
-        >
-          {item.provider}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          <Chip
+            label={item.provider}
+            size="small"
+            sx={{
+              backgroundColor: getRuntimeColor(item.provider),
+              color: 'white',
+              fontWeight: 500,
+              height: '24px',
+            }}
+          />
+        </div>
       ),
     },
     {
       label: 'Status',
       getter: (item: DeploymentStatus) => (
-        <StatusLabel status={getStatusColor(item.phase)}>
-          {item.phase}
-        </StatusLabel>
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          <StatusLabel status={getStatusColor(item.phase)}>
+            {item.phase}
+          </StatusLabel>
+        </div>
       ),
     },
     {
       label: 'Replicas',
-      getter: (item: DeploymentStatus) =>
-        `${item.replicas?.ready || 0}/${item.replicas?.desired || 1}`,
+      getter: (item: DeploymentStatus) => (
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          {`${item.replicas?.ready || 0}/${item.replicas?.desired || 1}`}
+        </div>
+      ),
     },
     {
       label: 'Engine',
-      getter: (item: DeploymentStatus) => item.engine || '-',
+      getter: (item: DeploymentStatus) => (
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          {item.engine || '-'}
+        </div>
+      ),
     },
     {
       label: 'Age',
       getter: (item: DeploymentStatus) => {
-        if (!item.createdAt) return '-';
+        if (!item.createdAt) return <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>-</div>;
         const created = new Date(item.createdAt);
         const now = new Date();
         const diffMs = now.getTime() - created.getTime();
@@ -165,34 +189,37 @@ export function DeploymentsList() {
         const diffHours = Math.floor(diffMins / 60);
         const diffDays = Math.floor(diffHours / 24);
 
-        if (diffDays > 0) return `${diffDays}d`;
-        if (diffHours > 0) return `${diffHours}h`;
-        return `${diffMins}m`;
+        let age = `${diffMins}m`;
+        if (diffDays > 0) age = `${diffDays}d`;
+        else if (diffHours > 0) age = `${diffHours}h`;
+        
+        return <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>{age}</div>;
       },
     },
     {
       label: 'Actions',
       getter: (item: DeploymentStatus) => (
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <HeadlampLink
-            routeName="Deployment Details"
-            params={{ name: item.name, namespace: item.namespace }}
-            style={{ color: '#1976d2', textDecoration: 'none' }}
-          >
-            View
-          </HeadlampLink>
-          <button
-            onClick={() => handleDelete(item.name, item.namespace)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#d32f2f',
-              cursor: 'pointer',
-              padding: 0,
-            }}
-          >
-            Delete
-          </button>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '100%' }}>
+          <Tooltip title="View">
+            <IconButton
+              component={HeadlampLink}
+              routeName="Deployment Details"
+              params={{ name: item.name, namespace: item.namespace }}
+              color="primary"
+              size="small"
+            >
+              <Icon icon="mdi:eye" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton
+              color="error"
+              size="small"
+              onClick={() => handleDelete(item.name, item.namespace)}
+            >
+              <Icon icon="mdi:trash-can" />
+            </IconButton>
+          </Tooltip>
         </div>
       ),
     },
