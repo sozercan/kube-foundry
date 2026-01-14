@@ -12,6 +12,9 @@ import {
   Loader,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Router } from '@kinvolk/headlamp-plugin/lib';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import { Icon } from '@iconify/react';
 import { useApiClient } from '../lib/api-client';
 import type { DeploymentConfig, Engine, Model, RuntimeStatus, ModelTask } from '@kubefoundry/shared';
 import { getBadgeColors } from '../lib/theme';
@@ -213,6 +216,7 @@ export function CreateDeployment() {
     setError(null);
 
     try {
+      // Base config for all providers
       const config: DeploymentConfig = {
         name,
         namespace,
@@ -222,7 +226,7 @@ export function CreateDeployment() {
         provider: selectedRuntime,
         routerMode: 'none',
         replicas,
-        hfTokenSecret: model.gated ? 'hf-token-secret' : '',
+        hfTokenSecret: model.gated ? 'hf-token-secret' : undefined,
         enforceEager,
         enablePrefixCaching: false,
         trustRemoteCode,
@@ -231,6 +235,21 @@ export function CreateDeployment() {
           gpu: gpuCount,
         },
       };
+
+      // Add KAITO-specific fields when KAITO is selected
+      if (selectedRuntime === 'kaito') {
+        // For vLLM engine, use vllm modelSource
+        if (engine === 'vllm') {
+          config.modelSource = 'vllm';
+          config.computeType = 'gpu';
+        } else if (engine === 'llamacpp') {
+          // For llamacpp, use huggingface source (requires GGUF)
+          config.modelSource = 'huggingface';
+          config.computeType = gpuCount > 0 ? 'gpu' : 'cpu';
+          config.ggufRunMode = 'direct';
+          // Note: ggufFile would need to be collected from user for llamacpp
+        }
+      }
 
       await api.deployments.create(config);
       history.push(Router.createRouteURL('KubeFoundry Deployments'));
@@ -691,47 +710,47 @@ export function CreateDeployment() {
         display: 'flex',
         gap: '12px',
         paddingTop: '24px',
+        paddingBottom: '32px',
         borderTop: '1px solid rgba(128, 128, 128, 0.3)',
       }}>
-        <button
+        <Button
+          variant="contained"
+          color="error"
           onClick={() => history.push(Router.createRouteURL('KubeFoundry Models'))}
-          style={{
-            padding: '12px 24px',
-            backgroundColor: 'transparent',
-            border: '1px solid rgba(128, 128, 128, 0.3)',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            color: 'inherit',
-          }}
+          sx={{ fontWeight: 600, px: 3, py: 1.5 }}
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="contained"
           onClick={handleSubmit}
           disabled={submitting || !isRuntimeInstalled || !name}
-          style={{
+          startIcon={
+            submitting ? (
+              <CircularProgress size={18} color="inherit" />
+            ) : !isRuntimeInstalled ? (
+              <Icon icon="mdi:alert" />
+            ) : (
+              <Icon icon="mdi:rocket-launch" />
+            )
+          }
+          sx={{
             flex: 1,
-            padding: '12px 24px',
-            backgroundColor: submitting || !isRuntimeInstalled ? '#999' : '#2e7d32',
+            fontWeight: 600,
+            py: 1.5,
+            backgroundColor: '#2e7d32',
             color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: submitting || !isRuntimeInstalled ? 'not-allowed' : 'pointer',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
+            '&:hover': {
+              backgroundColor: '#1b5e20',
+            },
+            '&.Mui-disabled': {
+              backgroundColor: '#999',
+              color: 'white',
+            },
           }}
         >
-          {submitting ? (
-            <>⏳ Creating...</>
-          ) : !isRuntimeInstalled ? (
-            <>⚠️ Runtime Not Installed</>
-          ) : (
-            <>🚀 Deploy Model</>
-          )}
-        </button>
+          {submitting ? 'Creating...' : !isRuntimeInstalled ? 'Runtime Not Installed' : 'Deploy Model'}
+        </Button>
       </div>
     </SectionBox>
   );
