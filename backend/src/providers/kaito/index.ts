@@ -448,6 +448,8 @@ export class KaitoProvider implements Provider {
 
     // Map KAITO phase to our DeploymentPhase
     // Check conditions for InferenceSet Ready status
+    // TODO(keithmattix): I don't think Workspace nor InferenceSet had a phase field in status
+    // https://github.com/kaito-project/kaito/blob/27bc1496bb5d7a3035c4aab8fb7ff9f54c7359c3/api/v1alpha1/workspace_types.go#L177
     let phase = this.mapPhase(undefined);  // InferenceSet doesn't have a phase field
 
     // Check if Ready condition is True
@@ -626,6 +628,7 @@ export class KaitoProvider implements Provider {
         ],
         values: {
           featureGates: {
+            enableInferenceSetController: true,
             disableNodeAutoProvisioning: true,
           },
           localCSIDriver: {
