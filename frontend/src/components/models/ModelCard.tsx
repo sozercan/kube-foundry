@@ -20,6 +20,7 @@ export function ModelCard({ model }: ModelCardProps) {
   return (
     <Card
       interactive
+      data-testid={`model-card-${model.id}`}
       className={cn(
         "flex flex-col h-full group",
         "hover:border-nvidia/50 hover:shadow-glow",
@@ -81,6 +82,7 @@ export function ModelCard({ model }: ModelCardProps) {
         <Button
           onClick={handleDeploy}
           className="w-full group/btn"
+          data-testid={`model-deploy-button-${model.id}`}
         >
           <Rocket className="mr-2 h-4 w-4 transition-transform duration-200 group-hover/btn:-translate-y-0.5" />
           Deploy Model

@@ -4,9 +4,9 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
 const navigation = [
-  { name: 'Models', href: '/', icon: Box },
-  { name: 'Deployments', href: '/deployments', icon: Layers },
-  { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'Models', href: '/', icon: Box, testId: 'nav-models' },
+  { name: 'Deployments', href: '/deployments', icon: Layers, testId: 'nav-deployments' },
+  { name: 'Settings', href: '/settings', icon: Settings, testId: 'nav-settings' },
 ]
 
 interface SidebarProps {
@@ -55,6 +55,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               key={item.name}
               to={item.href}
               onClick={handleNavClick}
+              data-testid={item.testId}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium',
                 'transition-all duration-150 ease-out',

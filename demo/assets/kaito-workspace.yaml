@@ -1,0 +1,175 @@
+# =============================================================================
+# KAITO Workspace for vLLM Inference - Real Example from kaito-project/kaito
+# Source: https://github.com/kaito-project/kaito/tree/main/examples/inference
+#
+# COMPLEXITY OVERVIEW:
+# - Simplest of the three runtimes for basic deployments
+# - Still requires Azure-specific knowledge (VM SKUs, quotas)
+# - Multi-node distributed inference adds complexity
+# - ConfigMap for vLLM parameters requires understanding vLLM internals
+# =============================================================================
+
+# PAIN POINT: API version v1beta1 indicates API is not yet stable
+# Breaking changes may occur between KAITO versions
+apiVersion: kaito.sh/v1beta1
+kind: Workspace
+metadata:
+  name: workspace-llama-3-3-70b-instruct
+  # PAIN POINT: annotations control runtime behavior
+  # Easy to forget or misconfigure
+  annotations:
+    # PAIN POINT: Runtime selection via annotation is not obvious
+    # Default changed from transformers to vLLM in v0.4.0
+    # Missing annotation uses default, which may not be what you want
+    kaito.sh/runtime: "vllm"
+spec:
+  resource:
+    # =========================================================================
+    # PAIN POINT: count specifies number of GPU NODES, not replicas
+    # For distributed inference, this creates a StatefulSet across nodes
+    # Naming is confusing - "count: 2" means 2 nodes, not 2 pods per node
+    # =========================================================================
+    count: 2
+    
+    # =========================================================================
+    # MAJOR PAIN POINT: instanceType is Azure-specific VM SKU
+    # 
+    # Problems:
+    # 1. Must know exact SKU name (Standard_NC48ads_A100_v4, not "A100 80GB")
+    # 2. Must verify GPU memory is sufficient for model
+    # 3. Must check regional availability
+    # 4. Must ensure quota is available
+    # 5. Different SKU naming for different clouds (if you migrate)
+    # 
+    # Common Azure GPU SKUs:
+    # - Standard_NC6s_v3: V100 16GB (small models)
+    # - Standard_NC24ads_A100_v4: A100 80GB (medium models)
+    # - Standard_NC48ads_A100_v4: 2x A100 80GB (large models)
+    # - Standard_NC96ads_A100_v4: 4x A100 80GB (very large models)
+    # - Standard_NC80adis_H100_v5: 8x H100 80GB (largest models)
+    # =========================================================================
+    instanceType: "Standard_NC48ads_A100_v4"
+    
+    # PAIN POINT: labelSelector is used to match nodes
+    # If using auto-provisioning, these labels are applied to new nodes
+    # If using existing nodes, YOU must label them correctly
+    labelSelector:
+      matchLabels:
+        # PAIN POINT: Label must match what you set on nodes
+        # Typos cause silent failures - pods stuck in Pending
+        apps: llama-3-3-70b-instruct
+    
+    # PAIN POINT: preferredNodes vs requiredNodes affects scheduling behavior
+    # preferredNodes: Best-effort placement (may end up elsewhere)
+    # Not specifying means any node matching labels
+    # preferredNodes:
+    #   - aks-gpu-12345678-vmss000000
+    #   - aks-gpu-12345678-vmss000001
+
+  inference:
+    preset:
+      # PAIN POINT: Preset name must exactly match KAITO's supported models
+      # Typos or version mismatches cause "preset not found" errors
+      # List of presets: https://github.com/kaito-project/kaito/tree/main/presets
+      name: llama-3.3-70b-instruct
+      
+      # PAIN POINT: presetOptions for private models
+      presetOptions:
+        # PAIN POINT: Must create this secret manually before deployment
+        # Secret must contain HF_TOKEN key with your HuggingFace token
+        modelAccessSecret: hf-token
+    
+    # PAIN POINT: ConfigMap for custom vLLM parameters
+    # Must be created in same namespace before Workspace
+    # Reference by name only - no namespace prefix
+    config: "llama-inference-params"
+
+---
+# =============================================================================
+# PAIN POINT: ConfigMap for vLLM runtime parameters
+# 
+# Requires understanding:
+# 1. vLLM's parameter naming conventions (kebab-case vs snake_case)
+# 2. What each parameter does and its valid range
+# 3. How parameters interact with model size and GPU memory
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "llama-inference-params"
+  # PAIN POINT: Must be in same namespace as Workspace
+  # Cross-namespace references are not supported
+data:
+  # PAIN POINT: File name MUST be "inference_config.yaml"
+  # Different name = config silently ignored
+  inference_config.yaml: |
+    # PAIN POINT: max_probe_steps controls memory probing for optimal batch size
+    # Too low = suboptimal batching; too high = slow startup
+    max_probe_steps: 6
+    
+    vllm:
+      # PAIN POINT: cpu-offload-gb allows CPU memory for KV cache
+      # Increases capacity but adds latency
+      # 0 = disabled, which is usually best for latency-sensitive workloads
+      cpu-offload-gb: 0
+      
+      # PAIN POINT: gpu-memory-utilization controls memory allocation
+      # Higher = more memory for KV cache = more concurrent requests
+      # Too high (>0.95) = OOM risk, especially with variable length inputs
+      gpu-memory-utilization: 0.95
+      
+      # PAIN POINT: swap-space is CPU swap for KV cache when GPU is full
+      # Adds significant latency when used
+      swap-space: 4
+      
+      # PAIN POINT: max-model-len is CRITICAL for memory calculation
+      # Model memory + (max-model-len * num_concurrent_requests) = Total GPU memory
+      # 
+      # Llama-3.3-70B defaults to 131072 context length
+      # But that requires ~160GB GPU memory at full utilization
+      # Reducing to 16384 allows running on 2x A100 80GB
+      #
+      # Choosing wrong value = OOM crashes or wasted resources
+      max-model-len: 16384
+
+---
+# =============================================================================
+# PAIN POINT: HuggingFace token secret for model access
+# 
+# Must create this BEFORE applying the Workspace
+# Token must have read access to the model repository
+# For gated models like Llama, you must also accept the license on HuggingFace
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hf-token
+type: Opaque
+data:
+  # PAIN POINT: Token must be base64 encoded
+  # echo -n "hf_xxxx" | base64
+  # Common mistake: including newline in encoding (echo without -n)
+  HF_TOKEN: <base64-encoded-huggingface-token>
+
+---
+# =============================================================================
+# ALTERNATIVE: Single-node deployment (simpler but less powerful)
+# For smaller models that fit on a single GPU
+# =============================================================================
+apiVersion: kaito.sh/v1beta1
+kind: Workspace
+metadata:
+  name: workspace-phi-4-mini
+spec:
+  resource:
+    # PAIN POINT: For single GPU, don't specify count (defaults to 1)
+    # Specifying count: 1 may trigger different behavior in some versions
+    instanceType: "Standard_NC24ads_A100_v4"
+    labelSelector:
+      matchLabels:
+        apps: phi-4
+  inference:
+    preset:
+      # PAIN POINT: Small models like phi-4 work well with defaults
+      # No ConfigMap needed for simple deployments
+      name: phi-4-mini-instruct

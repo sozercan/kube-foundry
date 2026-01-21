@@ -8,6 +8,7 @@ interface GpuFitIndicatorProps {
   estimatedGpuMemoryGb?: number;
   clusterCapacityGb?: number;
   className?: string;
+  modelId?: string;
 }
 
 /**
@@ -68,7 +69,8 @@ function getTooltipMessage(
 export function GpuFitIndicator({ 
   estimatedGpuMemoryGb, 
   clusterCapacityGb,
-  className 
+  className,
+  modelId
 }: GpuFitIndicatorProps) {
   const status = getGpuFitStatus(estimatedGpuMemoryGb, clusterCapacityGb);
   const message = getTooltipMessage(status, estimatedGpuMemoryGb, clusterCapacityGb);
@@ -91,7 +93,7 @@ export function GpuFitIndicator({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className={cn('inline-flex', className)}>
+          <span className={cn('inline-flex', className)} data-testid={modelId ? `gpu-fit-indicator-${modelId}` : undefined}>
             <Icon className={cn('h-4 w-4', colorClass)} />
           </span>
         </TooltipTrigger>

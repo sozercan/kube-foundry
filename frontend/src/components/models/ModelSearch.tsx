@@ -33,6 +33,7 @@ export function ModelSearch({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           className="pl-10"
+          data-testid="model-search-input"
         />
       </div>
 

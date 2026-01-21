@@ -1,0 +1,203 @@
+# =============================================================================
+# KubeRay RayService for vLLM Serving - Real Example from ray-project/kuberay
+# Source: https://github.com/ray-project/kuberay/blob/master/ray-operator/config/samples
+#
+# COMPLEXITY OVERVIEW:
+# - Total lines: ~150+ lines
+# - Nested YAML-in-YAML (serveConfigV2 embeds full Ray Serve config as string)
+# - Requires knowledge of: Kubernetes, Ray, Ray Serve, Python, vLLM
+# - Multiple abstraction layers to understand
+# =============================================================================
+
+# PAIN POINT: API version must exactly match installed CRD version
+# If you have an older kuberay-operator, this will silently fail or error cryptically
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: vllm-rayservice
+  # PAIN POINT: No standard way to configure GPU node affinity at this level
+  # You need to know to add annotations or labels for node selection
+spec:
+  # PAIN POINT: Unhealthy thresholds are deprecated but still appear in many examples
+  # Using deprecated fields can cause confusion about what's actually being used
+  serviceUnhealthySecondThreshold: 300
+  deploymentUnhealthySecondThreshold: 300
+
+  # ===========================================================================
+  # MAJOR PAIN POINT: serveConfigV2 is YAML embedded as a multi-line string!
+  # This means:
+  # 1. No IDE validation or autocomplete inside this block
+  # 2. Indentation errors are invisible until runtime
+  # 3. Syntax errors only surface when Ray Serve tries to parse it
+  # 4. You can't use YAML anchors/aliases across the boundary
+  # ===========================================================================
+  serveConfigV2: |
+    applications:
+      - name: vllm_app
+        # PAIN POINT: import_path must be a valid Python module path
+        # Requires understanding Python's import system and package structure
+        import_path: vllm_serve:build_app
+        route_prefix: /
+        
+        # PAIN POINT: runtime_env is powerful but complex
+        # Errors here (bad URLs, missing deps) only appear at deployment time
+        runtime_env:
+          working_dir: "https://github.com/ray-project/kuberay/archive/refs/heads/master.zip"
+          pip:
+            - vllm>=0.4.0
+            - transformers
+            - accelerate
+          env_vars:
+            # PAIN POINT: Environment variables set here may conflict with
+            # env vars set in the container spec - order of precedence is unclear
+            MODEL_ID: "meta-llama/Llama-2-7b-chat-hf"
+            TENSOR_PARALLEL_SIZE: "1"
+            # PAIN POINT: HuggingFace token must be set, but there's no
+            # secure way to inject secrets into runtime_env from K8s Secrets
+            # This often leads to tokens being hardcoded or passed insecurely
+            HF_TOKEN: "${HF_TOKEN}"
+
+        deployments:
+          - name: VLLMDeployment
+            # PAIN POINT: num_replicas interacts with autoscaling in non-obvious ways
+            # If autoscaling is enabled, this becomes the initial/min replicas
+            num_replicas: 1
+            max_replicas_per_node: 1
+            
+            # PAIN POINT: user_config is passed to the deployment class __init__
+            # Structure depends entirely on how the Python class is implemented
+            # No schema validation - errors only at runtime
+            user_config:
+              model_id: "meta-llama/Llama-2-7b-chat-hf"
+              max_model_len: 4096
+              tensor_parallel_size: 1
+              dtype: "float16"
+              # PAIN POINT: GPU memory utilization is critical for OOM prevention
+              # but optimal value depends on model size, batch size, and GPU type
+              # Too high = OOM crashes; too low = wasted resources
+              gpu_memory_utilization: 0.9
+            
+            ray_actor_options:
+              # PAIN POINT: num_cpus and num_gpus must match what's available
+              # Mismatch causes deployment to hang forever waiting for resources
+              num_cpus: 4
+              num_gpus: 1
+              # PAIN POINT: custom_resources for TPU/specialized hardware
+              # requires understanding Ray's resource naming conventions
+              # and how they map to Kubernetes resources
+
+  # ===========================================================================
+  # rayClusterConfig: Embedded RayCluster spec
+  # This creates another layer of complexity - you're defining a cluster inside a service
+  # ===========================================================================
+  rayClusterConfig:
+    # PAIN POINT: rayVersion must exactly match the image version
+    # Mismatches cause subtle bugs that are hard to diagnose
+    rayVersion: '2.9.0'
+    
+    enableInTreeAutoscaling: true
+    # PAIN POINT: Autoscaling config is separate from Ray Serve autoscaling
+    # Two different autoscaling systems that can conflict
+    autoscalerOptions:
+      upscalingMode: Default
+      idleTimeoutSeconds: 60
+      # PAIN POINT: These env vars control autoscaler behavior
+      # Documentation is scattered across Ray and KubeRay docs
+      env:
+        - name: RAY_CLUSTER_ACTIVITY_HOOK
+          value: "ray.autoscaler.v2.sdk.is_cluster_idle"
+
+    headGroupSpec:
+      rayStartParams:
+        # PAIN POINT: dashboard-host 0.0.0.0 is required for external access
+        # but this is a security consideration that's easy to miss
+        dashboard-host: '0.0.0.0'
+        # PAIN POINT: block=true keeps the head node running
+        # Without this, the head process exits and the cluster dies
+        block: 'true'
+      
+      template:
+        spec:
+          # PAIN POINT: serviceAccountName often needed for cloud provider auth
+          # but easy to forget, causing cryptic permission errors
+          serviceAccountName: ray-head
+          containers:
+            - name: ray-head
+              # PAIN POINT: Image must include Ray, vLLM, and all dependencies
+              # Building this image is a separate complex task
+              image: rayproject/ray-ml:2.9.0-py310-gpu
+              resources:
+                limits:
+                  cpu: "8"
+                  memory: "32Gi"
+                  # PAIN POINT: Head node with GPU is expensive
+                  # but sometimes required for model serving
+                  nvidia.com/gpu: "1"
+                requests:
+                  cpu: "4"
+                  memory: "16Gi"
+                  nvidia.com/gpu: "1"
+              # PAIN POINT: Multiple ports must be exposed and aligned with service config
+              # Missing a port causes silent failures
+              ports:
+                - containerPort: 6379  # GCS
+                  name: gcs
+                - containerPort: 8265  # Dashboard
+                  name: dashboard
+                - containerPort: 10001 # Client
+                  name: client
+                - containerPort: 8000  # Serve
+                  name: serve
+              # PAIN POINT: Volume mounts for model caching are critical for performance
+              # but require pre-provisioned PVCs
+              volumeMounts:
+                - name: model-cache
+                  mountPath: /root/.cache/huggingface
+          volumes:
+            - name: model-cache
+              persistentVolumeClaim:
+                claimName: model-cache-pvc
+          # PAIN POINT: Node selectors for GPU nodes require cluster-specific labels
+          # and coordination with cluster admins
+          nodeSelector:
+            cloud.google.com/gke-accelerator: nvidia-tesla-a100
+          # PAIN POINT: Tolerations must match GPU node taints
+          # Missing tolerations = pods stuck in Pending forever
+          tolerations:
+            - key: "nvidia.com/gpu"
+              operator: "Exists"
+              effect: "NoSchedule"
+
+    workerGroupSpecs:
+      - groupName: gpu-workers
+        replicas: 1
+        minReplicas: 0
+        maxReplicas: 4
+        rayStartParams:
+          block: 'true'
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray-ml:2.9.0-py310-gpu
+                resources:
+                  limits:
+                    cpu: "8"
+                    memory: "64Gi"
+                    nvidia.com/gpu: "1"
+                  requests:
+                    cpu: "4"
+                    memory: "32Gi"
+                    nvidia.com/gpu: "1"
+                # PAIN POINT: Worker lifecycle hooks are important for graceful shutdown
+                # but easy to forget, causing request failures during scaling
+                lifecycle:
+                  preStop:
+                    exec:
+                      command: ["/bin/sh", "-c", "ray stop"]
+            nodeSelector:
+              cloud.google.com/gke-accelerator: nvidia-tesla-a100
+            tolerations:
+              - key: "nvidia.com/gpu"
+                operator: "Exists"
+                effect: "NoSchedule"

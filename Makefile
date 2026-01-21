@@ -1,4 +1,4 @@
-.PHONY: install dev dev-frontend dev-backend build compile lint test clean help
+.PHONY: install dev dev-frontend dev-backend build compile lint test clean help demo demo-setup demo-cli demo-ui
 
 # Default target
 help:
@@ -20,6 +20,10 @@ help:
 	@echo "  lint              Run linters"
 	@echo "  test              Run tests"
 	@echo "  clean             Remove build artifacts and node_modules"
+	@echo "  demo              Run full automated demo"
+	@echo "  demo-setup        Install demo dependencies"
+	@echo "  demo-cli          Run CLI phase only"
+	@echo "  demo-ui           Run UI phase only"
 	@echo "  help              Show this help message"
 
 # Install dependencies
@@ -80,7 +84,22 @@ test:
 
 # Clean build artifacts
 clean:
-	rm -rf node_modules frontend/node_modules backend/node_modules shared/node_modules
+	rm -rf node_modules frontend/node_modules backend/node_modules shared/node_modules demo/node_modules
 	rm -rf dist frontend/dist backend/dist shared/dist
 	rm -f bun.lockb
 	@echo "✅ Cleaned all build artifacts"
+
+# Demo automation
+demo-setup:  ## Install demo dependencies
+	cd demo && bun install
+	cd demo && npx playwright install chromium
+	@echo "✅ Demo dependencies installed"
+
+demo: demo-setup  ## Run full automated demo
+	cd demo && bun run start
+
+demo-cli:  ## Run CLI phase only
+	cd demo && bun run cli-only
+
+demo-ui:  ## Run UI phase only
+	cd demo && bun run ui-only

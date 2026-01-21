@@ -94,6 +94,7 @@ export function ModelsPage() {
       <div className="flex gap-1 border-b">
         <button
           onClick={() => setActiveTab('curated')}
+          data-testid="models-curated-tab"
           className={cn(
             'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 border-b-2 -mb-px rounded-t-md',
             activeTab === 'curated'
@@ -109,6 +110,7 @@ export function ModelsPage() {
         </button>
         <button
           onClick={() => setActiveTab('huggingface')}
+          data-testid="models-hf-search-tab"
           className={cn(
             'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 border-b-2 -mb-px rounded-t-md',
             activeTab === 'huggingface'

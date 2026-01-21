@@ -1,0 +1,145 @@
+/**
+ * Narration script for KubeFoundry demo
+ * All text content organized by phase
+ */
+
+export const NARRATION = {
+  // ============================================
+  // Phase 1: The Problem (CLI Phase)
+  // ============================================
+
+  intro: `Let me show you what deploying an LLM on Kubernetes typically looks like today. 
+This is the reality that platform engineers and ML operators face.`,
+
+  dynamo: `This is a real NVIDIA Dynamo DynamoGraphDeployment. Nearly 300 lines of YAML.
+Multiple services to coordinate - frontend, worker, router.
+You need to understand disaggregated prefill and decode architecture - that's an advanced ML concept.
+Plus, the node affinity labels are different for every cloud provider.
+Look at all those pain points highlighted in red.`,
+
+  apply_attempt: `Let's try to apply this Dynamo deployment and see what happens...`,
+
+  pending_pods: `And there it is. The pods are pending. GPU resource constraints.
+Now we need to dig into kubectl describe, check events, verify node labels,
+understand the kube-scheduler's decisions, and debug resource quotas.
+This requires deep expertise in both Kubernetes AND ML infrastructure.`,
+
+  transition: `There has to be a better way. What if we could abstract away all this complexity 
+while still leveraging these powerful open-source inference runtimes?`,
+
+  // ============================================
+  // Phase 2: The Solution (UI Phase)
+  // ============================================
+
+  kubefoundry_intro: `This is KubeFoundry. A single binary that provides a modern web UI 
+for deploying and managing LLMs on any Kubernetes cluster. 
+No installation required - just download, run, and open your browser.`,
+
+  dashboard: `The interface is clean and intuitive. 
+You can see your cluster connection status, navigate between models, deployments, and settings. 
+Let's start by setting up the infrastructure.`,
+
+  huggingface_login: `First, let's configure HuggingFace authentication. 
+Many popular models like Llama, Gemma, and Mistral are gated - 
+they require accepting a license agreement and authenticating with a token.
+KubeFoundry stores this securely as a Kubernetes secret and uses it automatically during model pulls.
+No manual secret creation or mounting required.`,
+
+  installation: `First, we need to install an inference runtime. KubeFoundry supports three major open-source projects: 
+NVIDIA Dynamo for maximum throughput, KubeRay for distributed Ray-based serving, 
+and KAITO for flexible CPU and GPU inference. 
+Installing is one-click. KubeFoundry runs Helm under the hood and shows real-time progress.`,
+
+  installation_progress: `Watch as the runtime installs. 
+We're deploying the operator, CRDs, and all necessary components automatically.`,
+
+  installation_complete: `And we're done. The runtime is now installed and ready to serve models. 
+That was several Helm commands and configuration steps, reduced to a single click.`,
+
+  models: `Now let's find a model. This is where KubeFoundry really shines. 
+We have a curated list of popular models ready to deploy.
+Notice the GPU fit indicators next to each model. Green means it fits your cluster. 
+Yellow means it's tight. Red means it exceeds your available GPU memory. 
+KubeFoundry queries your cluster's actual GPU resources and estimates requirements based on model parameters.`,
+
+  large_model_warning: `Look at the larger models like Llama 405B. 
+See that red indicator? That tells us immediately that this model won't fit on our cluster.
+No more trial and error with kubectl apply - we know upfront what will work.
+This saves hours of debugging failed deployments.`,
+
+  deploy_start: `Let's deploy Qwen3. Click Deploy and watch how simple this is.`,
+
+  deploy_config: `Configuring is straightforward. Select your runtime - we'll use Dynamo for maximum GPU throughput. 
+Keep the default settings for replicas and resources. KubeFoundry automatically applies sensible defaults 
+based on the model requirements and your cluster capacity.`,
+
+  ai_configurator: `This is Dynamo's AI Configurator - an intelligent optimization layer.
+The latency/throughput slider lets you prioritize response time for real-time applications
+or maximize throughput for batch processing. 
+Below that, the aggregated versus disaggregated toggle is key to Dynamo's architecture.
+Aggregated runs everything on one node. Disaggregated splits prefill and decode phases
+across multiple workers for better GPU utilization at scale.
+KubeFoundry exposes these advanced optimizations with simple UI controls.`,
+
+  deploy_submit: `Click Create Deployment. That's it. 
+No YAML, no kubectl, no manual secret creation, no resource calculations.`,
+
+  monitoring: `Now let's watch the deployment. 
+The status updates in real-time. We can see the pods being created, the model being downloaded, 
+and the inference server starting up.`,
+
+  monitoring_progress: `If something can't be scheduled - say, due to GPU constraints - 
+we show exactly why and provide actionable guidance. No more digging through kubectl describe output.`,
+
+  deployment_ready: `And there it is. The model is running and ready to serve requests. 
+The entire process took a few clicks instead of hours of YAML wrangling.`,
+
+  port_forward_intro: `Now let's prove it actually works. We'll port-forward to the service 
+and send a real chat completion request. This is the same OpenAI-compatible API 
+that any application can integrate with immediately.`,
+
+  chat_response: `There's our response. The model is live, serving real inference requests.
+From zero to running LLM in just a few clicks.`,
+
+  // ============================================
+  // KAITO CPU Inference
+  // ============================================
+
+  kaito_cpu_intro: `Now let me show you something really powerful - CPU-only inference with KAITO.
+Not every workload needs expensive GPUs. For development, testing, or cost-sensitive deployments,
+KAITO can run models entirely on CPU.`,
+
+  kaito_cpu_deploy: `We're deploying the same model, but this time with KAITO using CPU inference.
+No GPU required. This is perfect for clusters without GPU nodes or for reducing cloud costs.`,
+
+  kaito_cpu_ready: `The KAITO CPU deployment is running. Same model, same API, but on standard compute.
+This flexibility lets you optimize for cost or performance depending on your use case.`,
+
+  api_access: `Every deployment exposes an OpenAI-compatible API. 
+Your applications can integrate immediately using the same SDK they use for OpenAI or Azure OpenAI.`,
+
+  // ============================================
+  // Closing
+  // ============================================
+
+  summary: `Let's recap what we've demonstrated today:
+A unified interface for multiple open-source inference runtimes. 
+One-click installation via Helm. 
+Smart model discovery with GPU capacity awareness. 
+No-code deployment from model selection to running inference. 
+CPU-capable inference for cost optimization. 
+And standard OpenAI-compatible APIs for immediate integration.`,
+
+  closing: `KubeFoundry bridges the gap between powerful open-source ML infrastructure 
+and the operators who need to use it. 
+It's vendor-neutral, works on any Kubernetes cluster including AKS, 
+and lets you leverage the best of NVIDIA Dynamo, KubeRay, and KAITO 
+without becoming an expert in each one.`,
+
+  call_to_action: `We're looking to collect feedback, understand pain points, 
+and align on how this OSS approach can accelerate Microsoft Foundry 
+while letting customers bring their own compute. 
+Thank you for watching.`,
+} as const;
+
+export type NarrationKey = keyof typeof NARRATION;

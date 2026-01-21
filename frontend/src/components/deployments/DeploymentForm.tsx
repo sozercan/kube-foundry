@@ -18,7 +18,6 @@ import { type Model, type DetailedClusterCapacity, type AutoscalerDetectionResul
 import { ChevronDown, AlertCircle, Rocket, CheckCircle2, Sparkles, AlertTriangle, Server, Cpu, Box, Loader2 } from 'lucide-react'
 import { CapacityWarning } from './CapacityWarning'
 import { AIConfiguratorPanel } from './AIConfiguratorPanel'
-import { ManifestViewer } from './ManifestViewer'
 import { calculateGpuRecommendation, type GpuRecommendation } from '@/lib/gpu-recommendations'
 
 // Reusable GPU per Replica field component
@@ -663,7 +662,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2" data-testid="deploy-runtime-select">
               {runtimes.map((runtime) => {
                 const info = RUNTIME_INFO[runtime.id as RuntimeId]
                 if (!info) return null
@@ -677,6 +676,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                     role="radio"
                     aria-checked={isSelected}
                     tabIndex={isCompatible ? 0 : -1}
+                    data-testid={`deploy-runtime-option-${runtime.id}`}
                     onClick={() => {
                       if (isCompatible) {
                         handleRuntimeChange(runtime.id as RuntimeId)
@@ -794,6 +794,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                 placeholder="my-deployment"
                 required
                 pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                data-testid="deploy-name-input"
               />
               <p className="text-xs text-muted-foreground">
                 Lowercase letters, numbers, and hyphens only
@@ -846,6 +847,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                   }
                 }}
                 className="grid gap-4 sm:grid-cols-3"
+                data-testid="deploy-engine-select"
               >
                 {availableEngines.map((engine) => {
                   const isUnavailable = aiConfigSupportedBackends !== null && !aiConfigSupportedBackends.includes(engine)
@@ -863,6 +865,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                         value={engine}
                         id={engine}
                         disabled={isUnavailable}
+                        data-testid={`deploy-engine-option-${engine}`}
                       />
                       <Label
                         htmlFor={engine}
@@ -1107,6 +1110,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                   max={10}
                   value={config.replicas}
                   onChange={(e) => updateConfig('replicas', parseInt(e.target.value) || 1)}
+                  data-testid="deploy-replicas-input"
                 />
               </div>
 
@@ -1355,48 +1359,6 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
           />
         )}
 
-        {/* Manifest Preview - build config with KAITO-specific fields */}
-        {(() => {
-          // Build preview config with all necessary fields
-          let previewConfig = { ...config };
-          
-          if (selectedRuntime === 'kaito') {
-            if (isHuggingFaceGgufModel) {
-              previewConfig = {
-                ...previewConfig,
-                modelSource: 'huggingface' as const,
-                modelId: model.id,
-                ggufFile: ggufFile,
-                ggufRunMode: ggufRunMode,
-                computeType: kaitoComputeType,
-              };
-            } else if (isVllmModel) {
-              previewConfig = {
-                ...previewConfig,
-                modelSource: 'vllm' as const,
-                modelId: model.id,
-                computeType: 'gpu' as const,
-                ...(maxModelLen && { maxModelLen }),
-              };
-            } else if (selectedPremadeModel) {
-              previewConfig = {
-                ...previewConfig,
-                modelSource: 'premade' as const,
-                computeType: kaitoComputeType,
-                premadeModel: selectedPremadeModel.id,
-              };
-            }
-          }
-          
-          return (
-            <ManifestViewer 
-              mode="preview"
-              config={previewConfig}
-              provider={selectedRuntime}
-            />
-          );
-        })()}
-
       {/* Submit Button */}
       <div className="flex gap-4">
         <Button
@@ -1414,6 +1376,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             "flex-1 gap-2",
             createDeployment.status === 'success' && "bg-green-600 hover:bg-green-600"
           )}
+          data-testid="deploy-submit-button"
         >
           {getButtonContent()}
         </Button>

@@ -38,7 +38,7 @@ export function HfModelCard({ model, gpuCapacityGb }: HfModelCardProps) {
   const isWarning = gpuFitStatus === 'warning';
 
   return (
-    <Card className="flex flex-col transition-colors hover:border-nvidia/50">
+    <Card className="flex flex-col transition-colors hover:border-nvidia/50" data-testid={`model-card-${model.id}`}>
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
@@ -78,7 +78,8 @@ export function HfModelCard({ model, gpuCapacityGb }: HfModelCardProps) {
             </span>
             <GpuFitIndicator 
               estimatedGpuMemoryGb={model.estimatedGpuMemoryGb} 
-              clusterCapacityGb={gpuCapacityGb} 
+              clusterCapacityGb={gpuCapacityGb}
+              modelId={model.id}
             />
           </div>
         )}
@@ -89,7 +90,8 @@ export function HfModelCard({ model, gpuCapacityGb }: HfModelCardProps) {
             <span className="text-amber-500">Unknown size</span>
             <GpuFitIndicator 
               estimatedGpuMemoryGb={undefined} 
-              clusterCapacityGb={gpuCapacityGb} 
+              clusterCapacityGb={gpuCapacityGb}
+              modelId={model.id}
             />
           </div>
         )}
@@ -109,6 +111,7 @@ export function HfModelCard({ model, gpuCapacityGb }: HfModelCardProps) {
           onClick={handleDeploy} 
           className="w-full"
           variant={exceedsCapacity ? 'destructive' : isWarning ? 'outline' : 'default'}
+          data-testid={`model-deploy-button-${model.id}`}
         >
           {exceedsCapacity ? 'Deploy (May Fail)' : isWarning ? 'Deploy (Tight Fit)' : 'Deploy Model'}
         </Button>

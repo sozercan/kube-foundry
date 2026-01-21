@@ -95,6 +95,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
             key={deployment.name}
             className="rounded-lg border shadow-soft-sm p-4 space-y-3 bg-card"
             style={{ animationDelay: `${index * 50}ms` }}
+            data-testid={`deployment-card-${deployment.name}`}
           >
             {/* Header: Name and Status */}
             <div className="flex items-start justify-between gap-2">
@@ -104,7 +105,9 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
               >
                 {deployment.name}
               </Link>
-              <DeploymentStatusBadge phase={deployment.phase} />
+              <span data-testid={`deployment-status-${deployment.name}`}>
+                <DeploymentStatusBadge phase={deployment.phase} />
+              </span>
             </div>
 
             {/* Model */}
@@ -145,7 +148,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
             {/* Actions */}
             <div className="flex items-center gap-2 pt-2 border-t">
               <Link to={`/deployments/${deployment.name}?namespace=${deployment.namespace}`} className="flex-1">
-                <Button size="sm" variant="outline" className="w-full">
+                <Button size="sm" variant="outline" className="w-full" data-testid={`deployment-logs-${deployment.name}`}>
                   <Eye className="h-4 w-4 mr-2" />
                   View
                 </Button>
@@ -169,6 +172,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
                 variant="outline"
                 onClick={() => setDeleteTarget(deployment)}
                 className="text-destructive hover:text-destructive"
+                data-testid={`deployment-delete-${deployment.name}`}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -198,6 +202,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
                 key={deployment.name}
                 className="border-b last:border-0 hover:bg-muted/30 transition-colors duration-150"
                 style={{ animationDelay: `${index * 50}ms` }}
+                data-testid={`deployment-card-${deployment.name}`}
               >
                 <td className="px-4 py-3">
                   <Link
@@ -232,7 +237,9 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
                   </Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <DeploymentStatusBadge phase={deployment.phase} />
+                  <span data-testid={`deployment-status-${deployment.name}`}>
+                    <DeploymentStatusBadge phase={deployment.phase} />
+                  </span>
                 </td>
                 <td className="px-4 py-3 hidden xl:table-cell">
                   <span className="text-sm whitespace-nowrap" title={deployment.mode === 'disaggregated' ? 'Prefill / Decode replicas' : 'Worker replicas'}>
@@ -250,7 +257,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
                     <Link to={`/deployments/${deployment.name}?namespace=${deployment.namespace}`}>
-                      <Button size="sm" variant="ghost" title="View details">
+                      <Button size="sm" variant="ghost" title="View details" data-testid={`deployment-logs-${deployment.name}`}>
                         <Eye className="h-4 w-4" />
                       </Button>
                     </Link>
@@ -272,6 +279,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
                       variant="ghost"
                       onClick={() => setDeleteTarget(deployment)}
                       title="Delete deployment"
+                      data-testid={`deployment-delete-${deployment.name}`}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

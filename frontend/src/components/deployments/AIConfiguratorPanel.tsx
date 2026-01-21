@@ -110,7 +110,7 @@ export function AIConfiguratorPanel({
   }
 
   return (
-    <Card className={cn("border-primary/20", className)}>
+    <Card className={cn("border-primary/20", className)} data-testid="ai-configurator-panel">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -342,6 +342,7 @@ export function AIConfiguratorPanel({
                 <button
                   type="button"
                   onClick={() => setOptimizeFor('throughput')}
+                  data-testid="ai-configurator-throughput"
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
                     optimizeFor === 'throughput'
@@ -355,6 +356,7 @@ export function AIConfiguratorPanel({
                 <button
                   type="button"
                   onClick={() => setOptimizeFor('latency')}
+                  data-testid="ai-configurator-latency"
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
                     optimizeFor === 'latency'
@@ -384,6 +386,7 @@ export function AIConfiguratorPanel({
               type="button"
               className="w-full"
               onClick={handleAnalyze}
+              data-testid="ai-configurator-optimize"
             >
               <Wand2 className="h-4 w-4 mr-2" />
               Optimize

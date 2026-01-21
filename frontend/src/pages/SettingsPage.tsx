@@ -200,6 +200,7 @@ export function SettingsPage() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
+            data-testid={`settings-tab-${tab.id}`}
             className={cn(
               'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 border-b-2 -mb-px rounded-t-md',
               activeTab === tab.id
@@ -419,6 +420,7 @@ export function SettingsPage() {
               {runtimes.map((runtime) => (
                 <Card
                   key={runtime.id}
+                  data-testid={`runtime-card-${runtime.id}`}
                   className={cn(
                     'transition-all cursor-pointer',
                     effectiveRuntime === runtime.id
@@ -430,7 +432,7 @@ export function SettingsPage() {
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center justify-between">
                       <span>{runtime.name}</span>
-                      <Badge variant={runtime.installed ? (runtime.healthy ? 'default' : 'secondary') : 'destructive'}>
+                      <Badge variant={runtime.installed ? (runtime.healthy ? 'default' : 'secondary') : 'destructive'} data-testid={`runtime-status-${runtime.id}`}>
                         {runtime.installed ? (runtime.healthy ? 'Healthy' : 'Unhealthy') : 'Not Installed'}
                       </Badge>
                     </CardTitle>
@@ -497,7 +499,7 @@ export function SettingsPage() {
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                    <div className="flex items-center justify-between rounded-lg bg-muted p-3" data-testid={`runtime-crd-status-${effectiveRuntime}`} data-status={installationStatus?.crdFound ? 'installed' : 'not-installed'}>
                       <span>CRD Installed</span>
                       {installationStatus?.crdFound ? (
                         <CheckCircle className="h-4 w-4 text-green-500" />
@@ -505,7 +507,7 @@ export function SettingsPage() {
                         <XCircle className="h-4 w-4 text-red-500" />
                       )}
                     </div>
-                    <div className="flex items-center justify-between rounded-lg bg-muted p-3">
+                    <div className="flex items-center justify-between rounded-lg bg-muted p-3" data-testid={`runtime-operator-status-${effectiveRuntime}`} data-status={installationStatus?.operatorRunning ? 'installed' : 'not-installed'}>
                       <span>Operator Running</span>
                       {installationStatus?.operatorRunning ? (
                         <CheckCircle className="h-4 w-4 text-green-500" />
@@ -521,6 +523,7 @@ export function SettingsPage() {
                         onClick={() => handleInstall(effectiveRuntime)}
                         disabled={isInstalling || !helmAvailable || !clusterStatus?.connected}
                         className="flex items-center gap-2"
+                        data-testid={`runtime-install-${effectiveRuntime}`}
                       >
                         {isInstalling ? (
                           <>
@@ -776,7 +779,7 @@ export function SettingsPage() {
           </Card>
 
           {/* HuggingFace Token */}
-          <Card variant="elevated">
+          <Card variant="elevated" data-testid="hf-integration-card">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Key className="h-5 w-5" />
@@ -822,7 +825,7 @@ export function SettingsPage() {
                         )}
                       </div>
                     </div>
-                    <Badge variant="default" className="bg-green-500">
+                    <Badge variant="default" className="bg-green-500" data-testid="hf-status">
                       <CheckCircle className="h-3 w-3 mr-1" />
                       Connected
                     </Badge>
@@ -890,6 +893,7 @@ export function SettingsPage() {
                     }}
                     disabled={isConnectingHf}
                     className="bg-[#FFD21E] hover:bg-[#FFD21E]/90 text-black"
+                    data-testid="hf-signin-button"
                   >
                     {isConnectingHf ? (
                       <>
