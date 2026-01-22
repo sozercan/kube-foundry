@@ -330,14 +330,72 @@ async function waitForDeploymentRunning(): Promise<void> {
 
 /**
  * Run port-forward and send a chat request from terminal
+ * Uses kubectl to find the correct service directly
  */
 async function runPortForwardAndChat(): Promise<void> {
   log.step('Running port-forward and chat request in terminal...');
   
-  // Get deployment name from config - convert model ID to k8s-friendly name
-  const deploymentName = config.model.id.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
-  const port = 8080;
-  const servicePort = 80;
+  const localPort = 8000;
+  
+  // Use kubectl to find the service directly - this is the most reliable approach
+  log.step('Finding inference service via kubectl...');
+  
+  let serviceName = '';
+  let namespace = '';
+  let remotePort = '8000';
+  
+  try {
+    // Get all services and find ones matching our model
+    const result = Bun.spawnSync(['kubectl', 'get', 'svc', '-A', '-o', 'json']);
+    if (result.exitCode === 0) {
+      const data = JSON.parse(result.stdout.toString());
+      
+      for (const svc of data.items || []) {
+        const name = svc.metadata?.name || '';
+        const ns = svc.metadata?.namespace || '';
+        const port = svc.spec?.ports?.[0]?.port?.toString() || '8000';
+        
+        // Priority 1: Dynamo frontend (not disaggregated -d or -p variants)
+        if (name.includes('qwen3') && name.endsWith('-frontend') && !name.endsWith('-d') && !name.endsWith('-p')) {
+          serviceName = name;
+          namespace = ns;
+          remotePort = port;
+          log.step(`Found Dynamo frontend: ${ns}/${name}:${port}`);
+          break;
+        }
+        
+        // Priority 2: KAITO vLLM service
+        if (!serviceName && name.includes('qwen3') && name.endsWith('-vllm')) {
+          serviceName = name;
+          namespace = ns;
+          remotePort = port;
+          log.step(`Found KAITO vLLM: ${ns}/${name}:${port}`);
+        }
+        
+        // Priority 3: Any qwen3 service that's not headless
+        if (!serviceName && name.includes('qwen3') && !name.includes('headless')) {
+          serviceName = name;
+          namespace = ns;
+          remotePort = port;
+        }
+      }
+    }
+  } catch (error) {
+    log.error(`kubectl failed: ${error}`);
+  }
+  
+  if (!serviceName) {
+    console.log('\n');
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log(chalk.cyan.bold('  LIVE INFERENCE TEST'));
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log();
+    console.log(chalk.yellow('⚠ ') + chalk.white('No matching service found - deployment may still be initializing'));
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log();
+    await longPause();
+    return;
+  }
   
   // This will print to the terminal where the demo is running
   console.log('\n');
@@ -346,22 +404,59 @@ async function runPortForwardAndChat(): Promise<void> {
   console.log(chalk.cyan('═'.repeat(60)));
   console.log();
   
-  // Start port-forward in background
-  const portForwardCmd = `kubectl port-forward svc/${deploymentName} ${port}:${servicePort}`;
+  // Show the port-forward command
+  const portForwardCmd = `kubectl port-forward svc/${serviceName} ${localPort}:${remotePort} -n ${namespace}`;
   console.log(chalk.green('$ ') + chalk.white(portForwardCmd + ' &'));
   
   let portForwardProc: ReturnType<typeof Bun.spawn> | null = null;
   
   try {
     // Start port-forward process
-    portForwardProc = Bun.spawn(['kubectl', 'port-forward', `svc/${deploymentName}`, `${port}:${servicePort}`], {
+    portForwardProc = Bun.spawn(['kubectl', 'port-forward', '-n', namespace, `svc/${serviceName}`, `${localPort}:${remotePort}`], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
     
-    // Wait for port-forward to be ready
-    await pause(2000);
-    console.log(chalk.gray(`Forwarding from 127.0.0.1:${port} -> ${servicePort}`));
+    // Wait for port-forward to be ready by checking stderr for "Forwarding from" message
+    log.step('Waiting for port-forward to establish...');
+    let portForwardReady = false;
+    const startWait = Date.now();
+    const maxWait = 15000; // 15 seconds max
+    
+    while (!portForwardReady && Date.now() - startWait < maxWait) {
+      await pause(500);
+      
+      // Try to connect to the port
+      try {
+        const testResponse = await fetch(`http://localhost:${localPort}/health`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        portForwardReady = true;
+        log.step('Port-forward connection established');
+      } catch {
+        // Also try the OpenAI endpoint in case /health doesn't exist
+        try {
+          const testResponse = await fetch(`http://localhost:${localPort}/v1/models`, {
+            signal: AbortSignal.timeout(1000),
+          });
+          portForwardReady = true;
+          log.step('Port-forward connection established');
+        } catch {
+          // Keep waiting
+        }
+      }
+    }
+    
+    if (!portForwardReady) {
+      // Check if port-forward process died
+      if (portForwardProc.exitCode !== null) {
+        log.error(`Port-forward exited with code ${portForwardProc.exitCode}`);
+        throw new Error(`Port-forward failed with exit code ${portForwardProc.exitCode}`);
+      }
+      log.warning('Port-forward may not be fully ready, attempting request anyway...');
+    }
+    
+    console.log(chalk.gray(`Forwarding from 127.0.0.1:${localPort} -> ${remotePort}`));
     console.log();
     
     // Prepare curl command
@@ -371,7 +466,7 @@ async function runPortForwardAndChat(): Promise<void> {
       max_tokens: 100,
     });
     
-    const curlCmd = `curl -s http://localhost:${port}/v1/chat/completions -H "Content-Type: application/json" -d '...'`;
+    const curlCmd = `curl -s http://localhost:${localPort}/v1/chat/completions -H "Content-Type: application/json" -d '...'`;
     console.log(chalk.green('$ ') + chalk.white(curlCmd));
     console.log();
     
@@ -379,7 +474,7 @@ async function runPortForwardAndChat(): Promise<void> {
     log.step('Sending chat completion request...');
     const startTime = Date.now();
     
-    const response = await fetch(`http://localhost:${port}/v1/chat/completions`, {
+    const response = await fetch(`http://localhost:${localPort}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: requestBody,
@@ -512,19 +607,32 @@ export async function runUiPhase(): Promise<void> {
     await narrate('models');
     await longPause();
 
-    // Show a model that's too large for the cluster (Llama 405B)
-    log.step('Showing GPU fit indicator for large model...');
-    await narrate('large_model_warning');
+    // Show a model that's too large for the cluster (Llama 405B) using HuggingFace search
+    log.step('Showing GPU fit indicator for large model via HuggingFace search...');
     
-    // Scroll down to find larger models
+    // Click on HuggingFace search tab
+    await clickElement('models-hf-search-tab', 'HuggingFace Search tab');
+    await mediumPause();
+    
+    // Search for Llama 405B
     if (page) {
-      await page.evaluate(() => window.scrollBy(0, 300));
-      await mediumPause();
+      const searchInput = await page.$('input[placeholder*="Search"]');
+      if (searchInput) {
+        await searchInput.fill('llama-3.1-405b');
+        await longPause(); // Wait for search results
+      }
     }
     
-    // Look for Llama 405B or any model with red indicator
+    await narrate('large_model_warning');
+    await longPause();
+    
+    // Look for the red GPU fit indicator in search results
     // Just pause to let the viewer see the red GPU fit indicators
     await longPause();
+
+    // Go back to curated tab for deployment
+    await clickElement('models-curated-tab', 'Curated Models tab');
+    await shortPause();
 
     // Scroll back up
     if (page) {
@@ -600,8 +708,8 @@ export async function runUiPhase(): Promise<void> {
     await navigateTo('models');
     await mediumPause();
 
-    // Deploy with KAITO CPU
-    await deployModel(config.model.id, 'kaito');
+    // Deploy Llama GGUF model with KAITO CPU
+    await deployModel(config.modelCpu.id, 'kaito');
     await narrate('kaito_cpu_deploy');
     await mediumPause();
 

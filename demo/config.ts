@@ -19,10 +19,16 @@ export const config = {
     url: process.env.DEMO_KUBEFOUNDRY_URL ?? 'http://localhost:5173',
   },
 
-  // Demo model
+  // Demo model for GPU (Dynamo)
   model: {
     id: process.env.DEMO_MODEL ?? 'Qwen/Qwen3-0.6B',
     name: 'Qwen3-0.6B',
+  },
+
+  // Demo model for CPU (KAITO with GGUF)
+  modelCpu: {
+    id: process.env.DEMO_MODEL_CPU ?? 'kaito/llama3.2-1b',
+    name: 'Llama 3.2 1B (GGUF)',
   },
 
   // Runtime to use in demo
