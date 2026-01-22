@@ -73,7 +73,7 @@ export function CostEstimate({
           }
         }
       } catch (error) {
-        console.error('Failed to fetch real-time pricing:', error)
+        // Error is expected when cloud pricing API is unavailable
         setPricingError('Unable to fetch pricing from cloud provider API')
         setNodePoolCosts([])
       } finally {

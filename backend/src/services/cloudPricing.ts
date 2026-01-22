@@ -9,6 +9,13 @@
  */
 
 import { logger } from '../lib/logger';
+import { withRetry } from '../lib/retry';
+
+/** Timeout for external API calls in milliseconds */
+const API_TIMEOUT_MS = 10000;
+
+/** Maximum cache entries to prevent memory leaks */
+const MAX_CACHE_ENTRIES = 1000;
 
 // Cache pricing data to avoid excessive API calls
 interface PricingCache {
@@ -123,7 +130,8 @@ class CloudPricingService {
   ): Promise<PricingLookupResult> {
     const cacheKey = `${provider}:${instanceType}:${region || 'default'}`;
 
-    // Check cache first
+    // Check cache first and clean expired entries
+    this.cleanExpiredCache();
     const cached = this.cache.data.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < this.cache.ttlMs) {
       return { success: true, price: cached.price, cached: true };
@@ -189,11 +197,41 @@ class CloudPricingService {
 
     logger.debug({ url, instanceType, region }, 'Fetching Azure pricing');
 
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
+    // Use retry logic with timeout for external API calls
+    const response = await withRetry(
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+        try {
+          const res = await fetch(url, {
+            headers: {
+              Accept: 'application/json',
+            },
+            signal: controller.signal,
+          });
+          return res;
+        } finally {
+          clearTimeout(timeoutId);
+        }
       },
-    });
+      {
+        operationName: 'fetchAzurePrice',
+        maxRetries: 2,
+        initialDelayMs: 500,
+        maxDelayMs: 3000,
+        isRetryable: (error) => {
+          // Retry on network errors or 5xx/429 responses
+          if (error instanceof Error) {
+            if (error.name === 'AbortError') return true; // Timeout
+            if (error.message.includes('fetch failed')) return true;
+            if (error.message.includes('network')) return true;
+          }
+          const statusCode = (error as { statusCode?: number })?.statusCode;
+          return statusCode === 429 || (statusCode !== undefined && statusCode >= 500);
+        },
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`Azure pricing API returned ${response.status}: ${response.statusText}`);
@@ -286,17 +324,29 @@ class CloudPricingService {
    * Detect cloud provider from instance type naming convention
    */
   detectProvider(instanceType: string): 'azure' | 'aws' | 'gcp' | undefined {
+    if (!instanceType) {
+      return undefined;
+    }
+
     // Azure: Standard_*, Basic_*
     if (instanceType.startsWith('Standard_') || instanceType.startsWith('Basic_')) {
       return 'azure';
     }
 
-    // AWS: starts with letter+number (p4d.24xlarge, g5.xlarge, etc.)
-    if (/^[a-z][0-9]/.test(instanceType.toLowerCase())) {
+    // GCP: Check for GCP-specific patterns first (before AWS, since both can start with letter+number)
+    // GCP patterns: n1-standard-*, n2-*, e2-*, a2-*, c2-*, m1-*, custom-*
+    const gcpPatterns = /^(n1|n2|n2d|c2|c2d|c3|c3d|e2|m1|m2|m3|a2|a3|g2|custom)-/i;
+    if (gcpPatterns.test(instanceType)) {
+      return 'gcp';
+    }
+
+    // AWS: starts with letter+number followed by letter or dot (p4d.24xlarge, g5.xlarge, etc.)
+    // Pattern: letter + digit + (letter or dot) - more specific than before
+    if (/^[a-z][0-9]+[a-z.]/i.test(instanceType) && instanceType.includes('.')) {
       return 'aws';
     }
 
-    // GCP: contains dashes (n1-standard-4, a2-highgpu-1g, etc.)
+    // GCP fallback: contains dashes (covers custom machine types like custom-2-4096)
     if (instanceType.includes('-') && !instanceType.startsWith('Standard_')) {
       return 'gcp';
     }
@@ -312,12 +362,50 @@ class CloudPricingService {
   }
 
   /**
+   * Clean expired cache entries to prevent memory leaks
+   * Also enforces a maximum cache size
+   */
+  private cleanExpiredCache(): void {
+    const now = Date.now();
+    let expiredCount = 0;
+
+    // Remove expired entries
+    for (const [key, cached] of this.cache.data) {
+      if (now - cached.fetchedAt >= this.cache.ttlMs) {
+        this.cache.data.delete(key);
+        expiredCount++;
+      }
+    }
+
+    // If cache is still too large, remove oldest entries (LRU-like behavior)
+    if (this.cache.data.size > MAX_CACHE_ENTRIES) {
+      const entries = Array.from(this.cache.data.entries());
+      entries.sort((a, b) => a[1].fetchedAt - b[1].fetchedAt);
+
+      const toRemove = entries.slice(0, this.cache.data.size - MAX_CACHE_ENTRIES);
+      for (const [key] of toRemove) {
+        this.cache.data.delete(key);
+      }
+
+      logger.debug(
+        { removed: toRemove.length, remaining: this.cache.data.size },
+        'Evicted old cache entries due to size limit'
+      );
+    }
+
+    if (expiredCount > 0) {
+      logger.debug({ expiredCount }, 'Cleaned expired cache entries');
+    }
+  }
+
+  /**
    * Get cache statistics
    */
-  getCacheStats(): { size: number; ttlMs: number } {
+  getCacheStats(): { size: number; ttlMs: number; maxEntries: number } {
     return {
       size: this.cache.data.size,
       ttlMs: this.cache.ttlMs,
+      maxEntries: MAX_CACHE_ENTRIES,
     };
   }
 }
