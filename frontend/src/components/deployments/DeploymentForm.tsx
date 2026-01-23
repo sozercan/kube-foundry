@@ -41,7 +41,7 @@ function GpuPerReplicaField({ id, value, onChange, maxGpus = 8, recommendation, 
       <Label htmlFor={id} className="flex items-center gap-2">
         GPUs per Replica
         {isAiOptimized ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800" data-testid="ai-optimized-badge">
             <Sparkles className="h-3 w-3" />
             Optimized
           </span>
@@ -1045,7 +1045,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
             className="grid gap-4 sm:grid-cols-2"
           >
             <div className="flex items-start space-x-2">
-              <RadioGroupItem value="aggregated" id="mode-aggregated" className="mt-1" />
+              <RadioGroupItem value="aggregated" id="mode-aggregated" className="mt-1" data-testid="deploy-mode-aggregated" />
               <div>
                 <Label htmlFor="mode-aggregated" className="cursor-pointer font-medium flex items-center gap-2">
                   Aggregated (Standard)
@@ -1067,6 +1067,7 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
                     id="mode-disaggregated"
                     className="mt-1"
                 disabled={selectedRuntime === 'kaito'}
+                data-testid="deploy-mode-disaggregated"
               />
               <div>
                     <Label

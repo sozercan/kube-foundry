@@ -245,16 +245,16 @@ export function CostEstimate({
         <div className="overflow-hidden">
           <CardContent className="space-y-4 pt-0">
             {isLoading && nodePoolCosts.length === 0 ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2" data-testid="cost-estimate-loading">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>Loading pricing...</span>
               </div>
             ) : nodePoolCosts.length === 0 ? (
-              <div className="text-sm text-muted-foreground py-2">
+              <div className="text-sm text-muted-foreground py-2" data-testid="cost-estimate-empty">
                 No pricing data available
               </div>
             ) : (
-              <>
+              <div data-testid="cost-estimate-loaded">
         {nodePoolCosts.map((poolCost) => {
           const pricing = getBestPricing(poolCost)
           const isRealtime = pricing.source === 'realtime' || pricing.source === 'cached'
@@ -320,7 +320,7 @@ export function CostEstimate({
           )
         })}
 
-              </>
+              </div>
             )}
           </CardContent>
         </div>

@@ -53,3 +53,7 @@ backend/src/embedded-assets.ts
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# Demo debug captures
+demo/debug/
+demo/browser-state.json

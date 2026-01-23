@@ -129,7 +129,7 @@ export function AIConfiguratorPanel({
       <CardContent className="space-y-4">
         {/* Analysis in Progress */}
         {analyzeMutation.isPending && (
-          <div className="space-y-3 py-4">
+          <div className="space-y-3 py-4" data-testid="ai-configurator-analyzing">
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
               <p className="font-medium">Analyzing optimal configuration...</p>
@@ -155,10 +155,10 @@ export function AIConfiguratorPanel({
 
         {/* Result Display */}
         {result && (
-          <div className="space-y-4">
+          <div className="space-y-4" data-testid="ai-configurator-result">
             {/* Success/Warning Banner */}
             {result.success ? (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20" data-testid="ai-configurator-success">
                 <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
                 <div className="text-sm text-green-700 dark:text-green-400">
                   Optimal configuration found for {modelId}
@@ -302,7 +302,7 @@ export function AIConfiguratorPanel({
 
             {/* Action Buttons */}
             <div className="flex gap-2 pt-2">
-              <Button type="button" onClick={handleApply} className="flex-1">
+              <Button type="button" onClick={handleApply} className="flex-1" data-testid="ai-configurator-apply">
                 <CheckCircle2 className="h-4 w-4 mr-1" />
                 Apply Configuration
               </Button>
@@ -326,6 +326,7 @@ export function AIConfiguratorPanel({
                   onDiscard?.()
                 }}
                 className="text-muted-foreground"
+                data-testid="ai-configurator-discard"
               >
                 Discard
               </Button>

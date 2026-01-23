@@ -72,3 +72,34 @@ Read these files **only when relevant** to your task:
 - Cost routes: `backend/src/routes/costs.ts`
 - Prometheus parser: `backend/src/lib/prometheus-parser.ts`
 - K8s error handling: `backend/src/lib/k8s-errors.ts`
+
+## Demo Automation & Self-Testing
+
+The `demo/` directory contains Playwright-based UI automation for demos.
+
+**Running the demo:**
+```bash
+cd demo && bun run start          # Full demo
+cd demo && bun run start --ui-only  # UI phase only
+```
+
+**Self-Testing System:**
+
+When demo steps fail, debug captures are saved to `demo/debug/`:
+- Screenshots (`.png`) of the page state
+- Context files (`.json`) with visible elements, console errors, URL
+- `FAILURES.md` - Summary file designed for agent analysis
+
+**Debugging Demo Failures:**
+
+If `demo/debug/FAILURES.md` exists, read it to understand failures:
+1. Each failure has a screenshot, visible `data-testid` elements, and console errors
+2. Common issues: element not found (check selector), timing (increase retry), state mismatch
+3. Fix the issue in `demo/ui-phase.ts` or the frontend component
+
+**Key demo files:**
+- Demo orchestrator: `demo/run-demo.ts`
+- UI automation: `demo/ui-phase.ts`
+- Debug capture: `demo/lib/debug-capture.ts`
+- Resilient actions: `demo/lib/resilient-action.ts`
+- Narration script: `demo/script.ts`

@@ -27,8 +27,9 @@ export const config = {
 
   // Demo model for CPU (KAITO with GGUF)
   modelCpu: {
-    id: process.env.DEMO_MODEL_CPU ?? 'kaito/llama3.2-1b',
-    name: 'Llama 3.2 1B (GGUF)',
+    id: process.env.DEMO_MODEL_CPU ?? 'kaito/llama3.2-1b', // UI element test ID
+    apiModel: 'llama-3.2-1b-instruct', // Model name for inference API calls
+    name: 'Llama 3.2 1B',
   },
 
   // Runtime to use in demo
@@ -64,7 +65,20 @@ export const config = {
     skipCli: process.env.DEMO_SKIP_CLI === 'true',
     skipUi: process.env.DEMO_SKIP_UI === 'true',
     skipInstall: process.env.DEMO_SKIP_INSTALL === 'true',
+    skipHfLogin: process.env.DEMO_SKIP_HF_LOGIN === 'true',
     fastForward: process.env.DEMO_FAST_FORWARD === 'true',
+    /** If true, stop on first failure. If false, capture and continue. */
+    failFast: process.env.DEMO_FAIL_FAST !== 'false', // Default true
+  },
+
+  // Debug/self-testing options
+  debug: {
+    /** Directory for debug captures (screenshots, context) - in workspace for Copilot */
+    captureDir: process.env.DEMO_DEBUG_PATH ?? './debug',
+    /** Number of retries before capturing failure (default: 1) */
+    maxRetries: parseInt(process.env.DEMO_MAX_RETRIES ?? '1', 10),
+    /** Delay between retries in ms (default: 2000) */
+    retryDelay: parseInt(process.env.DEMO_RETRY_DELAY ?? '2000', 10),
   },
 } as const;
 
