@@ -81,6 +81,11 @@ Aggregated runs everything on one node. Disaggregated splits prefill and decode 
 across multiple workers for better GPU utilization at scale.
 KubeFoundry exposes these advanced optimizations with simple UI controls.`,
 
+  pricing_estimator: `Now look at the cost estimate panel. This is real-time pricing pulled directly from
+Azure's Retail Prices API. You can see the hourly and monthly costs for your deployment
+based on the actual VM and GPU types in your cluster. No more guessing or spreadsheet calculations.
+This helps platform teams make informed decisions about resource allocation and budgeting.`,
+
   deploy_submit: `Click Create Deployment. That's it. 
 No YAML, no kubectl, no manual secret creation, no resource calculations.`,
 
@@ -114,6 +119,13 @@ No GPU required. This is perfect for clusters without GPU nodes or for reducing 
 
   kaito_cpu_ready: `The KAITO CPU deployment is running. Same model, same API, but on standard compute.
 This flexibility lets you optimize for cost or performance depending on your use case.`,
+
+  kaito_port_forward_intro: `Let's prove the CPU inference works too. We'll port-forward to the KAITO service
+and send a chat completion request - the exact same API as the GPU deployment.`,
+
+  kaito_chat_response: `There it is - inference running entirely on CPU. 
+Same OpenAI-compatible API, but without requiring expensive GPU nodes.
+Perfect for development, testing, or cost-sensitive workloads.`,
 
   api_access: `Every deployment exposes an OpenAI-compatible API. 
 Your applications can integrate immediately using the same SDK they use for OpenAI or Azure OpenAI.`,

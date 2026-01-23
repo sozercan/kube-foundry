@@ -512,6 +512,163 @@ async function runPortForwardAndChat(): Promise<void> {
 }
 
 /**
+ * Run port-forward and send a chat request for KAITO CPU deployment
+ * Similar to runPortForwardAndChat but for KAITO-specific services
+ */
+async function runPortForwardAndChatKaito(): Promise<void> {
+  log.step('Running port-forward and chat request for KAITO CPU deployment...');
+  
+  const localPort = 8001; // Use different port to avoid conflicts
+  
+  // Use kubectl to find the KAITO service
+  log.step('Finding KAITO inference service via kubectl...');
+  
+  let serviceName = '';
+  let namespace = '';
+  let remotePort = '8000';
+  
+  try {
+    const result = Bun.spawnSync(['kubectl', 'get', 'svc', '-A', '-o', 'json']);
+    if (result.exitCode === 0) {
+      const data = JSON.parse(result.stdout.toString());
+      
+      for (const svc of data.items || []) {
+        const name = svc.metadata?.name || '';
+        const ns = svc.metadata?.namespace || '';
+        const port = svc.spec?.ports?.[0]?.port?.toString() || '8000';
+        
+        // Look for KAITO llama service
+        if (name.includes('llama') && (name.endsWith('-vllm') || name.includes('kaito'))) {
+          serviceName = name;
+          namespace = ns;
+          remotePort = port;
+          log.step(`Found KAITO service: ${ns}/${name}:${port}`);
+          break;
+        }
+      }
+    }
+  } catch (error) {
+    log.error(`kubectl failed: ${error}`);
+  }
+  
+  if (!serviceName) {
+    console.log('\n');
+    console.log(chalk.magenta('═'.repeat(60)));
+    console.log(chalk.magenta.bold('  KAITO CPU INFERENCE TEST'));
+    console.log(chalk.magenta('═'.repeat(60)));
+    console.log();
+    console.log(chalk.yellow('⚠ ') + chalk.white('No KAITO service found - deployment may still be initializing'));
+    console.log(chalk.magenta('═'.repeat(60)));
+    console.log();
+    await longPause();
+    return;
+  }
+  
+  console.log('\n');
+  console.log(chalk.magenta('═'.repeat(60)));
+  console.log(chalk.magenta.bold('  KAITO CPU INFERENCE TEST'));
+  console.log(chalk.magenta('═'.repeat(60)));
+  console.log();
+  
+  const portForwardCmd = `kubectl port-forward svc/${serviceName} ${localPort}:${remotePort} -n ${namespace}`;
+  console.log(chalk.green('$ ') + chalk.white(portForwardCmd + ' &'));
+  
+  let portForwardProc: ReturnType<typeof Bun.spawn> | null = null;
+  
+  try {
+    portForwardProc = Bun.spawn(['kubectl', 'port-forward', '-n', namespace, `svc/${serviceName}`, `${localPort}:${remotePort}`], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    
+    log.step('Waiting for port-forward to establish...');
+    let portForwardReady = false;
+    const startWait = Date.now();
+    const maxWait = 15000;
+    
+    while (!portForwardReady && Date.now() - startWait < maxWait) {
+      await pause(500);
+      
+      try {
+        await fetch(`http://localhost:${localPort}/health`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        portForwardReady = true;
+        log.step('Port-forward connection established');
+      } catch {
+        try {
+          await fetch(`http://localhost:${localPort}/v1/models`, {
+            signal: AbortSignal.timeout(1000),
+          });
+          portForwardReady = true;
+          log.step('Port-forward connection established');
+        } catch {
+          // Keep waiting
+        }
+      }
+    }
+    
+    if (!portForwardReady) {
+      if (portForwardProc.exitCode !== null) {
+        log.error(`Port-forward exited with code ${portForwardProc.exitCode}`);
+        throw new Error(`Port-forward failed with exit code ${portForwardProc.exitCode}`);
+      }
+      log.warning('Port-forward may not be fully ready, attempting request anyway...');
+    }
+    
+    console.log(chalk.gray(`Forwarding from 127.0.0.1:${localPort} -> ${remotePort}`));
+    console.log();
+    
+    const requestBody = JSON.stringify({
+      model: config.modelCpu.id,
+      messages: [{ role: 'user', content: 'Hello! What can you help me with?' }],
+      max_tokens: 100,
+    });
+    
+    const curlCmd = `curl -s http://localhost:${localPort}/v1/chat/completions -H "Content-Type: application/json" -d '...'`;
+    console.log(chalk.green('$ ') + chalk.white(curlCmd));
+    console.log();
+    
+    log.step('Sending chat completion request to KAITO CPU...');
+    const startTime = Date.now();
+    
+    const response = await fetch(`http://localhost:${localPort}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: requestBody,
+    });
+    
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log(chalk.yellow(JSON.stringify(data, null, 2)));
+      console.log();
+      console.log(chalk.green('✓ ') + chalk.white(`KAITO CPU inference working! (${elapsed}s)`));
+    } else {
+      const errorText = await response.text();
+      console.log(chalk.red(`Error ${response.status}: ${errorText}`));
+      console.log();
+      console.log(chalk.yellow('⚠ ') + chalk.white('API returned an error, but endpoint is reachable'));
+    }
+  } catch (error) {
+    console.log(chalk.red(`Request failed: ${error instanceof Error ? error.message : error}`));
+    console.log();
+    console.log(chalk.yellow('⚠ ') + chalk.white('Could not connect to KAITO service - model may still be loading'));
+  } finally {
+    if (portForwardProc) {
+      portForwardProc.kill();
+      log.step('Port-forward process terminated');
+    }
+  }
+  
+  console.log(chalk.magenta('═'.repeat(60)));
+  console.log();
+  
+  await longPause();
+}
+
+/**
  * Wait for deployment to be ready (legacy function)
  */
 async function waitForDeploymentReady(deploymentName: string): Promise<void> {
@@ -675,6 +832,27 @@ export async function runUiPhase(): Promise<void> {
     await narrate('ai_configurator');
     await longPause();
 
+    // Show Pricing Estimator
+    log.step('Showing pricing estimator...');
+    // Scroll down to make sure cost estimate is visible
+    if (page) {
+      await page.evaluate(() => window.scrollBy(0, 300));
+      await shortPause();
+      
+      // Try to expand the cost estimate card if collapsed
+      try {
+        const costCard = await page.$('[data-testid="cost-estimate-card"]');
+        if (costCard) {
+          await costCard.click();
+          await shortPause();
+        }
+      } catch {
+        // Card might already be expanded or not present
+      }
+    }
+    await narrate('pricing_estimator');
+    await longPause();
+
     await narrate('deploy_submit');
     await mediumPause();
 
@@ -717,8 +895,22 @@ export async function runUiPhase(): Promise<void> {
     await navigateTo('deployments');
     await longPause();
 
+    // Wait for KAITO deployment to reach Running state
+    log.step('Waiting for KAITO CPU deployment to reach Running state...');
+    await waitForDeploymentRunning();
+    
     await narrate('kaito_cpu_ready');
     await mediumPause();
+
+    // Port-forward and chat demo for KAITO CPU
+    log.phase('KAITO CPU INFERENCE TEST');
+    await narrate('kaito_port_forward_intro');
+    await mediumPause();
+    
+    // Run port-forward and chat for KAITO
+    await runPortForwardAndChatKaito();
+    await narrate('kaito_chat_response');
+    await longPause();
 
     await narrate('api_access');
     await longPause();
