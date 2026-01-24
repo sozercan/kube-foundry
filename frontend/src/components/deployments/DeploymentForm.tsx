@@ -1417,9 +1417,9 @@ export function DeploymentForm({ model, detailedCapacity, autoscaler, runtimes }
           />
         )}
         {/* Cost Estimate for non-KAITO runtimes (always GPU) */}
-        {selectedRuntime !== 'kaito' && detailedCapacity && detailedCapacity.nodePools.length > 0 && (
+        {selectedRuntime !== 'kaito' && (
           <CostEstimate
-            nodePools={detailedCapacity.nodePools}
+            nodePools={detailedCapacity?.nodePools}
             gpuCount={config.mode === 'disaggregated' 
               ? Math.max(config.prefillGpus || 1, config.decodeGpus || 1)
               : (config.resources?.gpu || gpuRecommendation.recommendedGpus || 1)}

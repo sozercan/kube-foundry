@@ -47,8 +47,8 @@ spec:
           cpu: "8"
         limits:
           cpu: "8"
-      # PAIN POINT: subComponentType must be explicitly null for frontend
-      # Workers use "prefill" or "decode" - easy to misconfigure
+      # PAIN POINT: subComponentType only applies to workers (prefill/decode)
+      # Frontend doesn't use it - the official recipe includes null for clarity
       subComponentType: null
 
       extraPodSpec:
@@ -67,8 +67,8 @@ spec:
             # - "kv": Smarter routing but adds latency for routing decisions
             - --router-mode
             - kv
-            # PAIN POINT: --router-reset-states clears router state on restart
-            # May cause brief performance degradation after restarts
+            # PAIN POINT: --router-reset-states purges JetStream and object store on startup
+            # WARNING: Can affect existing router replicas during rolling updates
             - --router-reset-states
 
     # =========================================================================

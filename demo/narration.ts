@@ -57,6 +57,7 @@ export async function speak(text: string, waitForCompletion = true): Promise<voi
       voice: config.azure.ttsVoice,
       input: text,
       speed: config.azure.ttsSpeed,
+      instructions: config.azure.ttsInstructions,
     });
 
     const buffer = Buffer.from(await response.arrayBuffer());
@@ -130,6 +131,7 @@ export async function checkTtsAvailable(): Promise<boolean> {
       voice: config.azure.ttsVoice,
       input: 'Test',
       speed: 1.0,
+      instructions: config.azure.ttsInstructions,
     });
 
     // Just verify we got a response

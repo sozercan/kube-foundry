@@ -130,10 +130,13 @@ From zero to running LLM in just a few clicks.`,
 
   kaito_cpu_intro: `Now let me show you something really powerful - CPU-only inference with KAITO.
 Not every workload needs expensive GPUs. For development, testing, or cost-sensitive deployments,
-KAITO can run models entirely on CPU.`,
+KAITO can run models entirely on CPU. This is powered by AIKit, an open-source project that enables
+efficient CPU inference using GGUF quantized models. In fact, KAITO is the only provider in KubeFoundry
+that supports GGUF formatted models - making it uniquely suited for CPU-based inference.`,
 
-  kaito_cpu_deploy: `We're deploying the same model, but this time with KAITO using CPU inference.
-No GPU required. This is perfect for clusters without GPU nodes or for reducing cloud costs.`,
+  kaito_cpu_deploy: `We're deploying a Llama model using KAITO with CPU inference.
+No GPU required. Notice the GGUF format - these quantized models are optimized for efficient CPU execution.
+This is perfect for clusters without GPU nodes or for reducing cloud costs.`,
 
   kaito_cpu_ready: `The KAITO CPU deployment is running. Same model, same API, but on standard compute.
 This flexibility lets you optimize for cost or performance depending on your use case.`,

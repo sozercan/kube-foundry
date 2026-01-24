@@ -54,6 +54,7 @@ async function debugScrollPosition(label: string): Promise<void> {
 
 /**
  * Safe scroll to element - ensures element exists and scrolls smoothly
+ * Scrolls within the main content container (which has overflow-auto)
  */
 async function scrollToElement(testId: string, label: string): Promise<boolean> {
   if (!page) return false;
@@ -62,11 +63,27 @@ async function scrollToElement(testId: string, label: string): Promise<boolean> 
   
   const found = await page.evaluate((id) => {
     const el = document.querySelector(`[data-testid="${id}"]`);
-    if (el) {
+    if (!el) return false;
+    
+    // Find the scrollable main container
+    const mainEl = document.querySelector('main');
+    if (mainEl) {
+      // Get element position relative to the main container
+      const mainRect = mainEl.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      
+      // Calculate scroll position to center the element
+      const scrollTop = mainEl.scrollTop + elRect.top - mainRect.top - (mainRect.height / 2) + (elRect.height / 2);
+      
+      mainEl.scrollTo({
+        top: Math.max(0, scrollTop),
+        behavior: 'smooth'
+      });
+    } else {
+      // Fallback to scrollIntoView
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return true;
     }
-    return false;
+    return true;
   }, testId);
   
   if (found) {
@@ -611,6 +628,398 @@ async function waitForDeploymentRunning(): Promise<void> {
 }
 
 /**
+ * Monitor pod logs for inference activity
+ * Waits until it detects that a response has been generated (user interacted via Ayna)
+ * @param namespace - The namespace to look for pods
+ * @param labelSelector - Label selector to find the right pods
+ * @param timeout - Maximum time to wait in milliseconds
+ * @returns true if inference activity was detected
+ */
+async function waitForInferenceInLogs(namespace: string, labelSelector: string, timeout: number = 120000): Promise<boolean> {
+  log.step(`Monitoring pod logs in ${namespace} (selector: ${labelSelector || 'all pods'})...`);
+  
+  console.log('\n');
+  console.log(chalk.cyan('═'.repeat(60)));
+  console.log(chalk.cyan.bold('  WAITING FOR AYNA INTERACTION'));
+  console.log(chalk.cyan('═'.repeat(60)));
+  console.log();
+  console.log(chalk.yellow('👆 Open Ayna and send a message to the model'));
+  console.log(chalk.gray('   Monitoring pod logs for inference activity...'));
+  console.log(chalk.cyan('═'.repeat(60)));
+  console.log();
+  
+  const startTime = Date.now();
+  
+  // Patterns that indicate inference happened
+  const inferencePatterns = [
+    /generate|generated/i,
+    /completion|completions/i,
+    /tokens?.*generated/i,
+    /request.*processed/i,
+    /inference.*complete/i,
+    /output.*tokens/i,
+    /response.*sent/i,
+    /POST.*chat.*completions/i,
+    /finish_reason/i,
+    // vLLM specific patterns
+    /Avg generation throughput/i,
+    /prompt_tokens|completion_tokens/i,
+    /request_id/i,
+    /Received request/i,
+    /generation.*tokens/i,
+    // Dynamo specific patterns  
+    /prefill|decode/i,
+    /kv.*cache/i,
+    /sequence.*complete/i,
+    // General API patterns
+    /200\s+OK/i,
+    /v1\/chat/i,
+    /streaming.*response/i,
+  ];
+  
+  // Get initial log line count to detect new activity
+  let lastLogLength = 0;
+  
+  while (Date.now() - startTime < timeout) {
+    try {
+      // Build kubectl logs command
+      const args = ['kubectl', 'logs', '-n', namespace];
+      if (labelSelector) {
+        args.push('-l', labelSelector);
+      } else {
+        // If no label selector, try to get logs from all pods in namespace
+        args.push('--all-containers=true');
+      }
+      args.push('--tail=50', '--timestamps');
+      
+      const result = Bun.spawnSync(args, { timeout: 10000 });
+      
+      if (result.exitCode === 0) {
+        const logs = result.stdout.toString();
+        
+        // Check if logs have grown (new activity)
+        if (logs.length > lastLogLength) {
+          const newLogs = logs.substring(lastLogLength);
+          lastLogLength = logs.length;
+          
+          // Check for inference patterns in new logs
+          for (const pattern of inferencePatterns) {
+            if (pattern.test(newLogs)) {
+              console.log();
+              console.log(chalk.green('✓ ') + chalk.white('Inference activity detected in pod logs!'));
+              console.log(chalk.cyan('═'.repeat(60)));
+              console.log();
+              
+              // Show a snippet of the relevant log
+              const lines = newLogs.split('\n').filter(l => pattern.test(l));
+              if (lines.length > 0) {
+                console.log(chalk.gray('Log snippet:'));
+                console.log(chalk.dim(lines.slice(0, 3).join('\n')));
+                console.log();
+              }
+              
+              log.success('Response confirmed in pod logs');
+              return true;
+            }
+          }
+        }
+      } else {
+        // Log the error on first failure
+        if (lastLogLength === 0) {
+          const stderr = result.stderr.toString();
+          log.step(`kubectl logs: ${stderr.substring(0, 100)}`);
+        }
+      }
+    } catch (error) {
+      log.step(`Log fetch error: ${error instanceof Error ? error.message : error}`);
+    }
+    
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    if (elapsed % 10 === 0) {
+      log.step(`  Still waiting for inference activity... (${elapsed}s)`);
+    }
+    
+    await pause(2000); // Check every 2 seconds
+  }
+  
+  console.log();
+  console.log(chalk.yellow('⚠ ') + chalk.white('No inference activity detected within timeout'));
+  console.log(chalk.cyan('═'.repeat(60)));
+  console.log();
+  
+  log.warning('Timeout waiting for inference activity in logs');
+  return false;
+}
+
+/**
+ * Find pods for a deployment and return namespace and label selector
+ */
+async function findDeploymentPods(modelPattern: string, knownNamespace?: string): Promise<{ namespace: string; labelSelector: string } | null> {
+  try {
+    // Look for pods matching the model pattern
+    const namespaceArg = knownNamespace ? ['-n', knownNamespace] : ['-A'];
+    const result = Bun.spawnSync(['kubectl', 'get', 'pods', ...namespaceArg, '-o', 'json']);
+    if (result.exitCode !== 0) return null;
+    
+    const data = JSON.parse(result.stdout.toString());
+    
+    for (const pod of data.items || []) {
+      const name = pod.metadata?.name || '';
+      const ns = pod.metadata?.namespace || '';
+      const labels = pod.metadata?.labels || {};
+      
+      // Match pods containing the model pattern (e.g., qwen3, llama)
+      if (name.toLowerCase().includes(modelPattern.toLowerCase())) {
+        // Find a useful label for selecting pods
+        const appLabel = labels['app'] || labels['app.kubernetes.io/name'] || labels['dynamo.nvidia.com/graph'];
+        if (appLabel) {
+          log.step(`Found pod ${name} with app label: ${appLabel}`);
+          return { namespace: ns, labelSelector: `app=${appLabel}` };
+        }
+        // Try dynamo-specific labels
+        const dynamoLabel = labels['dynamo.nvidia.com/graph'];
+        if (dynamoLabel) {
+          log.step(`Found pod ${name} with dynamo label: ${dynamoLabel}`);
+          return { namespace: ns, labelSelector: `dynamo.nvidia.com/graph=${dynamoLabel}` };
+        }
+        // Fallback: use the deployment/workspace name if available
+        const workspaceLabel = labels['kaito.sh/workspace'];
+        if (workspaceLabel) {
+          log.step(`Found pod ${name} with KAITO workspace label: ${workspaceLabel}`);
+          return { namespace: ns, labelSelector: `kaito.sh/workspace=${workspaceLabel}` };
+        }
+        // Last resort: just use pod name prefix
+        const podPrefix = name.split('-').slice(0, -2).join('-');
+        if (podPrefix) {
+          log.step(`Found pod ${name}, using name prefix for selection`);
+          return { namespace: ns, labelSelector: '' }; // Empty selector, we'll use --all-containers
+        }
+      }
+    }
+    
+    // If no match by name, try searching in the known namespace
+    if (knownNamespace) {
+      log.step(`No pods matching '${modelPattern}', checking all pods in ${knownNamespace}...`);
+      for (const pod of data.items || []) {
+        const name = pod.metadata?.name || '';
+        const ns = pod.metadata?.namespace || '';
+        const phase = pod.status?.phase || '';
+        
+        // Only consider running pods in our namespace
+        if (ns === knownNamespace && phase === 'Running') {
+          const labels = pod.metadata?.labels || {};
+          const appLabel = labels['app'] || labels['app.kubernetes.io/name'];
+          if (appLabel) {
+            log.step(`Found running pod ${name} in namespace ${ns}`);
+            return { namespace: ns, labelSelector: `app=${appLabel}` };
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(`Failed to find pods: ${error}`);
+  }
+  return null;
+}
+
+/**
+ * Set up port-forward and wait for user to interact via Ayna
+ * Unlike runPortForwardAndChat, this doesn't send its own request - 
+ * it waits for the user to use Ayna and monitors pod logs to detect the response
+ */
+async function setupPortForwardForAyna(modelPattern: string): Promise<void> {
+  log.step('Setting up port-forward for Ayna...');
+  
+  const localPort = 8000;
+  
+  // Find the service
+  log.step('Finding inference service via kubectl...');
+  
+  let serviceName = '';
+  let namespace = '';
+  let remotePort = '8000';
+  
+  try {
+    const result = Bun.spawnSync(['kubectl', 'get', 'svc', '-A', '-o', 'json']);
+    if (result.exitCode === 0) {
+      const data = JSON.parse(result.stdout.toString());
+      
+      for (const svc of data.items || []) {
+        const name = svc.metadata?.name || '';
+        const ns = svc.metadata?.namespace || '';
+        const port = svc.spec?.ports?.[0]?.port?.toString() || '8000';
+        
+        // Match service based on model pattern
+        if (name.toLowerCase().includes(modelPattern.toLowerCase())) {
+          // Prefer frontend services for Dynamo
+          if (name.endsWith('-frontend') && !name.endsWith('-d') && !name.endsWith('-p')) {
+            serviceName = name;
+            namespace = ns;
+            remotePort = port;
+            log.step(`Found Dynamo frontend: ${ns}/${name}:${port}`);
+            break;
+          }
+          // Prefer vLLM services for KAITO
+          if (!serviceName && (name.endsWith('-vllm') || !name.includes('headless'))) {
+            serviceName = name;
+            namespace = ns;
+            remotePort = port;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(`kubectl failed: ${error}`);
+  }
+  
+  if (!serviceName) {
+    console.log('\n');
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log(chalk.cyan.bold('  AYNA INFERENCE TEST'));
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log();
+    console.log(chalk.yellow('⚠ ') + chalk.white('No matching service found - deployment may still be initializing'));
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log();
+    return;
+  }
+  
+  let portForwardProc: ReturnType<typeof Bun.spawn> | null = null;
+  
+  try {
+    // Start port-forward process
+    portForwardProc = Bun.spawn(['kubectl', 'port-forward', '-n', namespace, `svc/${serviceName}`, `${localPort}:${remotePort}`], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    
+    // Wait for port-forward to be ready
+    log.step('Waiting for port-forward to establish...');
+    let portForwardReady = false;
+    const startWait = Date.now();
+    const maxWait = 15000;
+    
+    while (!portForwardReady && Date.now() - startWait < maxWait) {
+      await pause(500);
+      try {
+        await fetch(`http://localhost:${localPort}/v1/models`, { signal: AbortSignal.timeout(1000) });
+        portForwardReady = true;
+        log.step('Port-forward connection established');
+      } catch {
+        // Keep waiting
+      }
+    }
+    
+    if (!portForwardReady && portForwardProc.exitCode !== null) {
+      throw new Error(`Port-forward failed with exit code ${portForwardProc.exitCode}`);
+    }
+    
+    // Show Ayna instructions
+    console.log('\n');
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log(chalk.cyan.bold('  AYNA INFERENCE TEST'));
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log();
+    console.log(chalk.gray(`Port-forward: localhost:${localPort} -> ${serviceName}:${remotePort}`));
+    console.log();
+    
+    // Click the Chat button in the UI to open Ayna
+    if (page) {
+      try {
+        // First, make sure we're on the deployments page
+        const currentUrl = page.url();
+        if (!currentUrl.includes('/deployments')) {
+          await page.goto(`${config.kubefoundry.url}/deployments`);
+          await page.waitForLoadState('networkidle');
+          await pause(1000);
+        }
+        
+        // Give the page a moment to render
+        await pause(1000);
+        
+        // Find chat button href directly from DOM (no visibility wait needed)
+        const chatHref = await page.evaluate((pattern) => {
+          // Look for chat links in both mobile and desktop views
+          const allChatLinks = document.querySelectorAll('a[data-testid^="deployment-chat-"]');
+          for (const link of allChatLinks) {
+            const testId = link.getAttribute('data-testid') || '';
+            // Check if it matches our pattern (case-insensitive)
+            if (testId.toLowerCase().includes(pattern.toLowerCase())) {
+              return (link as HTMLAnchorElement).href;
+            }
+          }
+          // If no match, return the first one that has ayna:// scheme
+          for (const link of allChatLinks) {
+            const href = (link as HTMLAnchorElement).href;
+            if (href.startsWith('ayna://')) {
+              return href;
+            }
+          }
+          return null;
+        }, modelPattern);
+        
+        if (chatHref) {
+          // Open the Ayna URL directly since clicking may not work due to visibility
+          log.step(`Opening Ayna: ${chatHref.substring(0, 60)}...`);
+          await page.evaluate((href) => {
+            window.location.href = href;
+          }, chatHref);
+          await pause(1500); // Give Ayna time to open
+          log.success('Opened Ayna via deep link');
+        } else {
+          log.warning('No Chat button found on deployments page');
+        }
+      } catch (error) {
+        log.warning(`Could not open Ayna: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    
+    console.log(chalk.yellow.bold('👆 Send a message to the model in Ayna'));
+    console.log(chalk.gray('   Endpoint: http://localhost:8000'));
+    console.log();
+    console.log(chalk.cyan('   Press ENTER when done to continue the demo...'));
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log();
+    
+    // Wait for user to press Enter (or timeout after 2 minutes)
+    const waitForEnter = async () => {
+      return new Promise<void>((resolve) => {
+        // Set up a timeout as fallback
+        const timeout = setTimeout(() => {
+          log.step('Timeout reached, continuing demo...');
+          resolve();
+        }, 120000);
+        
+        // Listen for Enter key
+        const readline = require('readline');
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+        
+        rl.question('', () => {
+          clearTimeout(timeout);
+          rl.close();
+          resolve();
+        });
+      });
+    };
+    
+    await waitForEnter();
+    console.log(chalk.green('✓ ') + chalk.white('Continuing demo...'));
+    console.log(chalk.cyan('═'.repeat(60)));
+    console.log();
+    
+  } finally {
+    // Clean up port-forward process
+    if (portForwardProc) {
+      portForwardProc.kill();
+      log.step('Port-forward process terminated');
+    }
+  }
+}
+
+/**
  * Run port-forward and send a chat request from terminal
  * Uses kubectl to find the correct service directly
  */
@@ -1062,56 +1471,60 @@ export async function runUiPhase(): Promise<void> {
   log.step('Demonstrating KubeFoundry UI');
 
   // Cleanup before starting: Delete any existing deployments, screenshots, and debug captures
-  log.phase('PRE-DEMO CLEANUP');
-  log.step('Cleaning up any existing demo resources...');
-  
-  try {
-    // Clear previous debug captures (screenshots, FAILURES.md, context files)
-    log.step('Clearing debug captures...');
-    await clearDebugCaptures();
-    log.success(`Debug captures cleared (${getDebugDir()})`);
+  if (!config.features.skipCleanup) {
+    log.phase('PRE-DEMO CLEANUP');
+    log.step('Cleaning up any existing demo resources...');
     
-    // Delete screenshots from previous session
-    log.step('Deleting old screenshots...');
-    const screenshotDir = './screenshots';
     try {
-      const { unlinkSync, readdirSync } = await import('fs');
-      const files = readdirSync(screenshotDir);
-      let deleted = 0;
-      for (const file of files) {
-        if (file.endsWith('.png')) {
-          unlinkSync(`${screenshotDir}/${file}`);
-          deleted++;
+      // Clear previous debug captures (screenshots, FAILURES.md, context files)
+      log.step('Clearing debug captures...');
+      await clearDebugCaptures();
+      log.success(`Debug captures cleared (${getDebugDir()})`);
+      
+      // Delete screenshots from previous session
+      log.step('Deleting old screenshots...');
+      const screenshotDir = './screenshots';
+      try {
+        const { unlinkSync, readdirSync } = await import('fs');
+        const files = readdirSync(screenshotDir);
+        let deleted = 0;
+        for (const file of files) {
+          if (file.endsWith('.png')) {
+            unlinkSync(`${screenshotDir}/${file}`);
+            deleted++;
+          }
+        }
+        if (deleted > 0) {
+          log.success(`Deleted ${deleted} old screenshots`);
+        }
+      } catch {
+        // Directory may not exist or be empty
+      }
+      
+      // Delete existing Dynamo DGD (DynamoGpuDeployment)
+      log.step('Deleting existing Dynamo deployments...');
+      const dgdResult = Bun.spawnSync(['kubectl', 'delete', 'dgd', '--all', '-n', 'dynamo-system', '--ignore-not-found']);
+      if (dgdResult.exitCode === 0) {
+        const output = dgdResult.stdout.toString().trim();
+        if (output && !output.includes('No resources found')) {
+          log.success('Existing Dynamo DGDs deleted');
         }
       }
-      if (deleted > 0) {
-        log.success(`Deleted ${deleted} old screenshots`);
+      
+      // Delete existing KAITO Workspaces
+      log.step('Deleting existing KAITO workspaces...');
+      const workspaceResult = Bun.spawnSync(['kubectl', 'delete', 'workspace', '--all', '-n', 'kaito-workspace', '--ignore-not-found']);
+      if (workspaceResult.exitCode === 0) {
+        const output = workspaceResult.stdout.toString().trim();
+        if (output && !output.includes('No resources found')) {
+          log.success('Existing KAITO workspaces deleted');
+        }
       }
-    } catch {
-      // Directory may not exist or be empty
+    } catch (error) {
+      log.warning(`Pre-cleanup error: ${error}`);
     }
-    
-    // Delete existing Dynamo DGD (DynamoGpuDeployment)
-    log.step('Deleting existing Dynamo deployments...');
-    const dgdResult = Bun.spawnSync(['kubectl', 'delete', 'dgd', '--all', '-n', 'dynamo-system', '--ignore-not-found']);
-    if (dgdResult.exitCode === 0) {
-      const output = dgdResult.stdout.toString().trim();
-      if (output && !output.includes('No resources found')) {
-        log.success('Existing Dynamo DGDs deleted');
-      }
-    }
-    
-    // Delete existing KAITO Workspaces
-    log.step('Deleting existing KAITO workspaces...');
-    const workspaceResult = Bun.spawnSync(['kubectl', 'delete', 'workspace', '--all', '-n', 'kaito-workspace', '--ignore-not-found']);
-    if (workspaceResult.exitCode === 0) {
-      const output = workspaceResult.stdout.toString().trim();
-      if (output && !output.includes('No resources found')) {
-        log.success('Existing KAITO workspaces deleted');
-      }
-    }
-  } catch (error) {
-    log.warning(`Pre-cleanup error: ${error}`);
+  } else {
+    log.info('Skipping cleanup (DEMO_SKIP_CLEANUP=true)');
   }
   
   // Reset screenshot counter
@@ -1123,51 +1536,70 @@ export async function runUiPhase(): Promise<void> {
     await screenshot('01-launch-dashboard');
 
     // Introduction to KubeFoundry
-    await narrate('kubefoundry_intro');
-    await longPause();
+    if (!config.features.skipIntro) {
+      await narrate('kubefoundry_intro');
+      await longPause();
 
-    // Show dashboard
-    await narrate('dashboard');
-    await mediumPause();
-
-    // Navigate to Settings for runtime installation
-    await navigateTo('settings');
-    await mediumPause();
-
-    // Click on Runtimes tab
-    await clickElement('settings-tab-runtimes', 'Runtimes tab');
-    await mediumPause();
-    await screenshot('settings-runtimes-tab');
-
-    // Scroll down to show install buttons
-    if (page) {
-      log.step('Scrolling to show runtime install buttons...');
-      await page.evaluate(() => {
-        const mainEl = document.querySelector('main');
-        if (mainEl) mainEl.scrollBy({ top: 400, behavior: 'smooth' });
-      });
-      await shortPause();
-    }
-
-    // Runtime installation (skip if DEMO_SKIP_INSTALL is set)
-    if (!config.features.skipInstall) {
-      await narrate('installation');
-      await mediumPause();
-
-      // Install Dynamo runtime
-      log.step('Installing Dynamo runtime...');
-      await installRuntime('dynamo');
-      await narrate('installation_progress', false); // Don't wait, let it play during install
-
-      await narrate('installation_complete');
-      await mediumPause();
-
-      // Also install KAITO for CPU demo
-      log.step('Installing KAITO runtime for CPU inference...');
-      await installRuntime('kaito');
+      // Show dashboard
+      await narrate('dashboard');
       await mediumPause();
     } else {
-      log.info('Skipping runtime installation (DEMO_SKIP_INSTALL=true)');
+      log.info('Skipping intro (DEMO_SKIP_INTRO=true)');
+    }
+
+    // Navigate to Settings for runtime installation
+    if (!config.features.skipSettings) {
+      await navigateTo('settings');
+      await mediumPause();
+
+      // Click on Runtimes tab
+      await clickElement('settings-tab-runtimes', 'Runtimes tab');
+      await mediumPause();
+      await screenshot('settings-runtimes-tab');
+
+      // Scroll down to show install buttons
+      if (page) {
+        log.step('Scrolling to show runtime install buttons...');
+        await page.evaluate(() => {
+          const mainEl = document.querySelector('main');
+          if (mainEl) mainEl.scrollBy({ top: 400, behavior: 'smooth' });
+        });
+        await shortPause();
+      }
+
+      // Runtime installation (skip if DEMO_SKIP_INSTALL is set, or if both deployments are skipped)
+      const skipRuntimeInstall = config.features.skipInstall || 
+        (config.features.skipDynamoDeploy && config.features.skipKaitoDeploy);
+      
+      if (!skipRuntimeInstall) {
+        await narrate('installation');
+        await mediumPause();
+
+        // Install Dynamo runtime (only if we'll deploy to it)
+        if (!config.features.skipDynamoDeploy) {
+          log.step('Installing Dynamo runtime...');
+          
+          // Start narration in background while install runs
+          const progressNarration = narrate('installation_progress', false);
+          await installRuntime('dynamo');
+          
+          // Wait for progress narration to finish before speaking the next line
+          await progressNarration;
+          await narrate('installation_complete');
+          await mediumPause();
+        }
+
+        // Install KAITO for CPU demo (only if we'll deploy to it)
+        if (!config.features.skipKaitoDeploy) {
+          log.step('Installing KAITO runtime for CPU inference...');
+          await installRuntime('kaito');
+          await mediumPause();
+        }
+      } else {
+        log.info('Skipping runtime installation (deployments skipped or DEMO_SKIP_INSTALL=true)');
+      }
+    } else {
+      log.info('Skipping settings navigation (DEMO_SKIP_SETTINGS=true)');
     }
 
     // Navigate to Models
@@ -1179,40 +1611,44 @@ export async function runUiPhase(): Promise<void> {
     await longPause();
 
     // Show a model that's too large for the cluster (Llama 405B) using HuggingFace search
-    log.step('Showing GPU fit indicator for large model via HuggingFace search...');
-    
-    // Click on HuggingFace search tab
-    await clickElement('models-hf-search-tab', 'HuggingFace Search tab');
-    await mediumPause();
-    
-    // Search for Llama 405B
-    if (page) {
-      const searchInput = await page.$('input[placeholder*="Search"]');
-      if (searchInput) {
-        await searchInput.fill('llama-3.1-405b');
-        await longPause(); // Wait for search results
-        await screenshot('hf-search-large-model');
+    if (!config.features.skipModelSearch) {
+      log.step('Showing GPU fit indicator for large model via HuggingFace search...');
+      
+      // Click on HuggingFace search tab
+      await clickElement('models-hf-search-tab', 'HuggingFace Search tab');
+      await mediumPause();
+      
+      // Search for Llama 405B
+      if (page) {
+        const searchInput = await page.$('input[placeholder*="Search"]');
+        if (searchInput) {
+          await searchInput.fill('llama-3.1-405b');
+          await longPause(); // Wait for search results
+          await screenshot('hf-search-large-model');
+        }
       }
-    }
-    
-    await narrate('large_model_warning');
-    await longPause();
-    
-    // Look for the red GPU fit indicator in search results
-    // Just pause to let the viewer see the red GPU fit indicators
-    await longPause();
+      
+      await narrate('large_model_warning');
+      await longPause();
+      
+      // Look for the red GPU fit indicator in search results
+      // Just pause to let the viewer see the red GPU fit indicators
+      await longPause();
 
-    // Go back to curated tab for deployment
-    await clickElement('models-curated-tab', 'Curated Models tab');
-    await shortPause();
-
-    // Scroll back up
-    if (page) {
-      await page.evaluate(() => {
-        const mainEl = document.querySelector('main');
-        if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
-      });
+      // Go back to curated tab for deployment
+      await clickElement('models-curated-tab', 'Curated Models tab');
       await shortPause();
+
+      // Scroll back up
+      if (page) {
+        await page.evaluate(() => {
+          const mainEl = document.querySelector('main');
+          if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        await shortPause();
+      }
+    } else {
+      log.info('Skipping model search (DEMO_SKIP_MODEL_SEARCH=true)');
     }
 
     // HuggingFace Login
@@ -1241,56 +1677,58 @@ export async function runUiPhase(): Promise<void> {
     await mediumPause();
 
     // Deploy model with Dynamo (GPU)
-    await narrate('deploy_start');
-    await shortPause();
+    if (!config.features.skipDynamoDeploy) {
+      await narrate('deploy_start');
+      await shortPause();
 
-    // Open deploy modal and select runtime (don't submit yet)
-    const modalOpened = await openDeployModal(config.model.id, 'dynamo');
-    if (!modalOpened) {
-      log.warning('Failed to open deploy modal, skipping deployment');
-      return;
-    }
-    await screenshot('deploy-form-dynamo');
+      // Open deploy modal and select runtime (don't submit yet)
+      const modalOpened = await openDeployModal(config.model.id, 'dynamo');
+      if (!modalOpened) {
+        log.warning('Failed to open deploy modal, skipping deployment');
+        return;
+      }
+      await screenshot('deploy-form-dynamo');
 
-    await narrate('deploy_config');
-    await mediumPause();
+      await narrate('deploy_config');
+      await mediumPause();
 
     // ============================================
     // AI Configurator / Optimizer Demo
     // ============================================
-    log.step('Running AI Configurator optimization demo...');
-    await narrate('ai_configurator');
-    await mediumPause();
+    if (!config.features.skipAiConfigurator) {
+      log.step('Running AI Configurator optimization demo...');
+      await narrate('ai_configurator');
+      await mediumPause();
 
-    if (page) {
-      try {
-        // Wait for AI Configurator panel to be visible
-        await page.waitForSelector('[data-testid="ai-configurator-panel"]', { 
-          state: 'visible', 
-          timeout: 10000 
-        });
+      if (page) {
+        try {
+          // Wait for AI Configurator panel to be visible
+          await page.waitForSelector('[data-testid="ai-configurator-panel"]', { 
+            state: 'visible', 
+            timeout: 10000 
+          });
 
-        // --- Latency Optimization (Demo disaggregated serving) ---
-        log.step('Selecting latency optimization...');
-        await narrate('ai_optimizer_latency');
-        await mediumPause();
-        
-        // Click latency button
-        await clickElement('ai-configurator-latency', 'Latency optimization');
-        await shortPause();
-        
-        // Click Optimize button
-        await clickElement('ai-configurator-optimize', 'Optimize button');
-        
-        // Wait for analysis to complete
-        log.step('Waiting for latency analysis...');
-        await page.waitForSelector('[data-testid="ai-configurator-result"]', { 
-          state: 'visible', 
-          timeout: 30000 
-        });
-        await screenshot('ai-config-latency-result');
-        await narrate('ai_optimizer_latency_result');
-        await longPause();
+          // --- Latency Optimization (Demo disaggregated serving) ---
+          log.step('Selecting latency optimization...');
+          await narrate('ai_optimizer_latency');
+          await mediumPause();
+          
+          // Click latency button
+          await clickElement('ai-configurator-latency', 'Latency optimization');
+          await shortPause();
+          
+          // Click Optimize button
+          await clickElement('ai-configurator-optimize', 'Optimize button');
+          
+          // Wait for analysis to complete
+          log.step('Waiting for latency analysis...');
+          await page.waitForSelector('[data-testid="ai-configurator-result"]', { 
+            state: 'visible', 
+            timeout: 30000 
+          });
+          await screenshot('ai-config-latency-result');
+          await narrate('ai_optimizer_latency_result');
+          await longPause();
 
         // Apply latency configuration to show AI-optimized settings
         log.step('Applying latency configuration...');
@@ -1369,127 +1807,155 @@ export async function runUiPhase(): Promise<void> {
         await shortPause();
         log.success('Aggregated mode with vLLM selected for deployment');
 
-      } catch (error) {
-        log.warning(`AI Configurator: ${error instanceof Error ? error.message : error}`);
+        } catch (error) {
+          log.warning(`AI Configurator: ${error instanceof Error ? error.message : error}`);
+        }
       }
+    } else {
+      log.info('Skipping AI Configurator (DEMO_SKIP_AI_CONFIGURATOR=true)');
     }
 
     // Show Pricing Estimator (BEFORE deploying)
-    log.step('Showing pricing estimator...');
-    if (page) {
-      // Scroll to cost estimate card
-      await scrollToElement('cost-estimate-card', 'Cost estimate card');
-      await shortPause();
-      
-      // Wait for cost estimate to load and expand
-      log.step('Waiting for cost estimate to load...');
-      try {
-        // Wait for pricing data to load first (the card re-renders when data arrives)
-        // This avoids clicking on an unstable element
-        await page.waitForSelector('[data-testid="cost-estimate-card"]', { 
-          state: 'visible', 
-          timeout: 10000 
-        });
+    if (!config.features.skipCostEstimate) {
+      log.step('Showing pricing estimator...');
+      if (page) {
+        // Scroll to cost estimate card
+        await scrollToElement('cost-estimate-card', 'Cost estimate card');
+        await shortPause();
         
-        // Wait a moment for React to finish any re-renders
-        await pause(1000);
-        
-        // Wait for the cost data to be loaded before clicking
-        // Check for either the loaded state OR the hourly cost (covers both cases)
-        const loaded = await Promise.race([
-          page.waitForSelector('[data-testid="cost-estimate-loaded"]', { timeout: 15000 }).then(() => true),
-          page.waitForSelector('[data-testid="hourly-cost"]', { timeout: 15000 }).then(() => true),
-        ]).catch(() => false);
-        
-        if (loaded) {
-          log.success('Cost estimate data loaded');
-        } else {
-          log.step('Cost data still loading, will expand anyway...');
+        // Wait for cost estimate to load and expand
+        log.step('Waiting for cost estimate to load...');
+        try {
+          // Wait for pricing data to load first (the card re-renders when data arrives)
+          // This avoids clicking on an unstable element
+          await page.waitForSelector('[data-testid="cost-estimate-card"]', { 
+            state: 'visible', 
+            timeout: 10000 
+          });
+          
+          // Wait a moment for React to finish any re-renders
+          await pause(1000);
+          
+          // Wait for the cost data to be loaded before clicking
+          // Check for either the loaded state OR the hourly cost (covers both cases)
+          const loaded = await Promise.race([
+            page.waitForSelector('[data-testid="cost-estimate-loaded"]', { timeout: 15000 }).then(() => true),
+            page.waitForSelector('[data-testid="hourly-cost"]', { timeout: 15000 }).then(() => true),
+          ]).catch(() => false);
+          
+          if (loaded) {
+            log.success('Cost estimate data loaded');
+          } else {
+            log.step('Cost data still loading, will expand anyway...');
+          }
+          
+          // Now click to expand using page.click which re-queries the element
+          await page.click('[data-testid="cost-estimate-card"]', { timeout: 5000 });
+          await mediumPause();
+          log.success('Cost estimate panel expanded');
+          await screenshot('cost-estimate-expanded');
+          
+        } catch (error) {
+          log.warning(`Cost estimate: ${error instanceof Error ? error.message : error}`);
         }
-        
-        // Now click to expand using page.click which re-queries the element
-        await page.click('[data-testid="cost-estimate-card"]', { timeout: 5000 });
-        await mediumPause();
-        log.success('Cost estimate panel expanded');
-        await screenshot('cost-estimate-expanded');
-        
-      } catch (error) {
-        log.warning(`Cost estimate: ${error instanceof Error ? error.message : error}`);
       }
+      await narrate('pricing_estimator');
+      await longPause();
+    } else {
+      log.info('Skipping cost estimate (DEMO_SKIP_COST_ESTIMATE=true)');
     }
-    await narrate('pricing_estimator');
-    await longPause();
 
     // NOW submit the deployment after reviewing cost estimate
-    await narrate('deploy_submit');
-    await mediumPause();
-    await submitDeployment();
+      await narrate('deploy_submit');
+      await mediumPause();
+      await submitDeployment();
 
-    // Monitor deployment
-    await navigateTo('deployments');
-    await narrate('monitoring');
-    await longPause();
+      // Monitor deployment
+      await navigateTo('deployments');
+      await narrate('monitoring');
+      await longPause();
 
-    // Wait for deployment to reach Running state
-    log.step('Waiting for deployment to reach Running state...');
-    await waitForDeploymentRunning();
-    await screenshot('deployment-running-dynamo');
-    
-    await narrate('deployment_ready');
-    await mediumPause();
+      // Wait for deployment to reach Running state
+      log.step('Waiting for deployment to reach Running state...');
+      await waitForDeploymentRunning();
+      await screenshot('deployment-running-dynamo');
+      
+      await narrate('deployment_ready');
+      await mediumPause();
+    } else {
+      log.info('Skipping Dynamo deployment (DEMO_SKIP_DYNAMO_DEPLOY=true)');
+      // Navigate to deployments page to show existing deployment
+      await navigateTo('deployments');
+      await mediumPause();
+    }
 
-    // Port-forward and chat demo
-    log.phase('LIVE INFERENCE TEST');
-    await narrate('port_forward_intro');
-    await mediumPause();
-    
-    // Run port-forward and chat in terminal
-    await runPortForwardAndChat();
-    await longPause();
+    // Ayna inference test - set up port-forward and wait for user interaction
+    if (!config.features.skipDynamoInference) {
+      log.phase('LIVE INFERENCE TEST');
+      await narrate('port_forward_intro');
+      await mediumPause();
+      
+      // Set up port-forward and wait for Ayna interaction
+      await setupPortForwardForAyna('qwen3');
+      await longPause();
+    } else {
+      log.info('Skipping Dynamo inference (DEMO_SKIP_DYNAMO_INFERENCE=true)');
+    }
 
     // Now show KAITO CPU deployment
-    log.phase('KAITO CPU INFERENCE');
-    await narrate('kaito_cpu_intro');
-    await mediumPause();
+    if (!config.features.skipKaitoDeploy) {
+      log.phase('KAITO CPU INFERENCE');
+      await narrate('kaito_cpu_intro');
+      await mediumPause();
 
-    // Navigate back to Models
-    await navigateTo('models');
-    await mediumPause();
+      // Navigate back to Models
+      await navigateTo('models');
+      await mediumPause();
 
-    // Open deploy modal for KAITO CPU model
-    const kaitoModalOpened = await openDeployModal(config.modelCpu.id, 'kaito');
-    if (!kaitoModalOpened) {
-      log.warning('Failed to open KAITO deploy modal, skipping deployment');
-      return;
+      // Open deploy modal for KAITO CPU model
+      const kaitoModalOpened = await openDeployModal(config.modelCpu.id, 'kaito');
+      if (!kaitoModalOpened) {
+        log.warning('Failed to open KAITO deploy modal, skipping deployment');
+        return;
+      }
+      await screenshot('deploy-form-kaito-cpu');
+      await narrate('kaito_cpu_deploy');
+      await mediumPause();
+      
+      // Submit the KAITO deployment
+      await submitDeployment();
+
+      // Monitor KAITO deployment
+      await navigateTo('deployments');
+      await longPause();
+
+      // Wait for KAITO deployment to reach Running state
+      log.step('Waiting for KAITO CPU deployment to reach Running state...');
+      await waitForDeploymentRunning();
+      await screenshot('deployment-running-kaito-cpu');
+      
+      await narrate('kaito_cpu_ready');
+      await mediumPause();
+    } else {
+      log.info('Skipping KAITO deployment (DEMO_SKIP_KAITO_DEPLOY=true)');
+      // Navigate to deployments page to show existing deployment
+      await navigateTo('deployments');
+      await mediumPause();
     }
-    await screenshot('deploy-form-kaito-cpu');
-    await narrate('kaito_cpu_deploy');
-    await mediumPause();
-    
-    // Submit the KAITO deployment
-    await submitDeployment();
 
-    // Monitor KAITO deployment
-    await navigateTo('deployments');
-    await longPause();
-
-    // Wait for KAITO deployment to reach Running state
-    log.step('Waiting for KAITO CPU deployment to reach Running state...');
-    await waitForDeploymentRunning();
-    await screenshot('deployment-running-kaito-cpu');
-    
-    await narrate('kaito_cpu_ready');
-    await mediumPause();
-
-    // Port-forward and chat demo for KAITO CPU
-    log.phase('KAITO CPU INFERENCE TEST');
-    await narrate('kaito_port_forward_intro');
-    await mediumPause();
-    
-    // Run port-forward and chat for KAITO
-    await runPortForwardAndChatKaito();
-    await narrate('kaito_chat_response');
-    await longPause();
+    // Ayna inference test for KAITO CPU
+    if (!config.features.skipKaitoInference) {
+      log.phase('KAITO CPU INFERENCE TEST');
+      await narrate('kaito_port_forward_intro');
+      await mediumPause();
+      
+      // Set up port-forward and wait for Ayna interaction
+      await setupPortForwardForAyna('llama');
+      await narrate('kaito_chat_response');
+      await longPause();
+    } else {
+      log.info('Skipping KAITO inference (DEMO_SKIP_KAITO_INFERENCE=true)');
+    }
 
     await narrate('api_access');
     await longPause();

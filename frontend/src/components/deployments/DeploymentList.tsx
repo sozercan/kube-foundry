@@ -161,6 +161,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
                   type: 'chat',
                 })}
                 className="flex-1"
+                data-testid={`deployment-chat-${deployment.name}`}
               >
                 <Button size="sm" variant="outline" className="w-full">
                   <MessageSquare className="h-4 w-4 mr-2" />
@@ -269,6 +270,7 @@ export function DeploymentList({ deployments, isLoading }: DeploymentListProps) 
                         type: 'chat',
                       })}
                       title="Open in Ayna"
+                      data-testid={`deployment-chat-${deployment.name}`}
                     >
                       <Button size="sm" variant="ghost">
                         <MessageSquare className="h-4 w-4" />

@@ -11,6 +11,7 @@ export const config = {
     ttsDeployment: process.env.AZURE_OPENAI_TTS_DEPLOYMENT ?? 'gpt-4o-mini-tts',
     ttsVoice: 'onyx' as const, // Deep, authoritative, professional
     ttsSpeed: 1.0,
+    ttsInstructions: 'Speak in a calm, professional tone. Keep a consistent pace and energy level throughout. Avoid dramatic inflections or excitement.',
   },
 
   // KubeFoundry settings
@@ -69,6 +70,18 @@ export const config = {
     fastForward: process.env.DEMO_FAST_FORWARD === 'true',
     /** If true, stop on first failure. If false, capture and continue. */
     failFast: process.env.DEMO_FAIL_FAST !== 'false', // Default true
+    
+    // Granular stage skip flags
+    skipCleanup: process.env.DEMO_SKIP_CLEANUP === 'true',
+    skipIntro: process.env.DEMO_SKIP_INTRO === 'true',
+    skipSettings: process.env.DEMO_SKIP_SETTINGS === 'true',
+    skipModelSearch: process.env.DEMO_SKIP_MODEL_SEARCH === 'true',
+    skipAiConfigurator: process.env.DEMO_SKIP_AI_CONFIGURATOR === 'true',
+    skipCostEstimate: process.env.DEMO_SKIP_COST_ESTIMATE === 'true',
+    skipDynamoDeploy: process.env.DEMO_SKIP_DYNAMO_DEPLOY === 'true',
+    skipDynamoInference: process.env.DEMO_SKIP_DYNAMO_INFERENCE === 'true',
+    skipKaitoDeploy: process.env.DEMO_SKIP_KAITO_DEPLOY === 'true',
+    skipKaitoInference: process.env.DEMO_SKIP_KAITO_INFERENCE === 'true',
   },
 
   // Debug/self-testing options

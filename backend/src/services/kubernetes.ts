@@ -642,7 +642,9 @@ class KubernetesService {
       operatorRunning = false;
     }
 
-    const installed = crdFound && operatorRunning;
+    // Consider installed if operator pods are running OR if CRD exists with running operator
+    // Some installations (e.g., AKS with GPU node pools) have the operator running without ClusterPolicy CRD
+    const installed = operatorRunning || (crdFound && operatorRunning);
 
     let message: string;
     if (gpuAvailability.available) {
