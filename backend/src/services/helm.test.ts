@@ -197,6 +197,7 @@ describe('HelmService - Command Building Logic', () => {
       version: '0.8.0',
       values: {
         featureGates: {
+          enableInferenceSetController: true,
           disableNodeAutoProvisioning: true,
         },
       },
