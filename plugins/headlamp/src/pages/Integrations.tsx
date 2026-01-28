@@ -14,7 +14,6 @@ import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import { Icon } from '@iconify/react';
 import { useApiClient } from '../lib/api-client';
-import { getHuggingFaceCallbackUrl } from '../routes';
 import type { GPUOperatorStatus, HfSecretStatus } from '@kubefoundry/shared';
 import { ConnectionError } from '../components/ConnectionBanner';
 
@@ -50,7 +49,6 @@ export function Integrations() {
   const [hfStatus, setHfStatus] = useState<HfSecretStatus | null>(null);
   const [hfLoading, setHfLoading] = useState(true);
   const [hfError, setHfError] = useState<string | null>(null);
-  const [connectingHf, setConnectingHf] = useState(false);
   const [disconnectingHf, setDisconnectingHf] = useState(false);
 
   // Fetch GPU Operator status
@@ -101,29 +99,30 @@ export function Integrations() {
     }
   }, [api, fetchGpuStatus]);
 
+  // TODO: Re-enable OAuth sign-in once backend is ready
   // Start HuggingFace OAuth flow
   // Uses backend-driven PKCE flow to work across different frontend origins
-  const handleConnectHf = useCallback(async () => {
-    setConnectingHf(true);
-
-    try {
-      // Get the callback URL for this environment (uses current origin)
-      const redirectUri = getHuggingFaceCallbackUrl();
-
-      // Start OAuth via backend - it generates PKCE and stores the verifier
-      const { authorizationUrl, state } = await api.huggingFace.startOAuth({ redirectUri });
-
-      // Store state so the callback can validate it
-      sessionStorage.setItem('hf_oauth_state', state);
-      sessionStorage.setItem('hf_oauth_from_headlamp', 'true');
-
-      // Redirect to HuggingFace authorization
-      window.location.href = authorizationUrl;
-    } catch (err) {
-      alert(`Failed to start OAuth: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setConnectingHf(false);
-    }
-  }, [api]);
+  // const handleConnectHf = useCallback(async () => {
+  //   setConnectingHf(true);
+  //
+  //   try {
+  //     // Get the callback URL for this environment (uses current origin)
+  //     const redirectUri = getHuggingFaceCallbackUrl();
+  //
+  //     // Start OAuth via backend - it generates PKCE and stores the verifier
+  //     const { authorizationUrl, state } = await api.huggingFace.startOAuth({ redirectUri });
+  //
+  //     // Store state so the callback can validate it
+  //     sessionStorage.setItem('hf_oauth_state', state);
+  //     sessionStorage.setItem('hf_oauth_from_headlamp', 'true');
+  //
+  //     // Redirect to HuggingFace authorization
+  //     window.location.href = authorizationUrl;
+  //   } catch (err) {
+  //     alert(`Failed to start OAuth: ${err instanceof Error ? err.message : 'Unknown error'}`);
+  //     setConnectingHf(false);
+  //   }
+  // }, [api]);
 
   // Disconnect HuggingFace
   const handleDisconnectHf = useCallback(async () => {
@@ -371,13 +370,59 @@ export function Integrations() {
               </Button>
             </div>
           ) : (
-            // Not connected state
+            // Not connected state - show manual setup instructions
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <p style={{ margin: 0, fontSize: '14px', opacity: 0.8 }}>
-                Sign in with HuggingFace to automatically configure your token for accessing gated
-                models. The token will be securely stored as a Kubernetes secret.
+                Create a HuggingFace token at{' '}
+                <a
+                  href="https://huggingface.co/settings/tokens"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#1976d2' }}
+                >
+                  huggingface.co/settings/tokens
+                </a>{' '}
+                and run the following commands to configure access to gated models:
               </p>
 
+              {/* Manual setup commands */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {[
+                  'export HF_TOKEN=hf_your_token_here',
+                  'kubectl create secret generic hf-secret --from-literal=hf_token=$HF_TOKEN -n kaito-workspace',
+                ].map((cmd, index) => (
+                  <div
+                    key={index}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <code
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        backgroundColor: 'rgba(128, 128, 128, 0.1)',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        overflowX: 'auto',
+                      }}
+                    >
+                      {cmd}
+                    </code>
+                    <IconButton
+                      color="primary"
+                      onClick={() => copyToClipboard(cmd)}
+                    >
+                      <Icon icon="mdi:content-copy" />
+                    </IconButton>
+                  </div>
+                ))}
+              </div>
+
+              {/* TODO: Re-enable OAuth sign-in once backend is ready
               <Button
                 onClick={handleConnectHf}
                 disabled={connectingHf}
@@ -390,6 +435,7 @@ export function Integrations() {
               >
                 {connectingHf ? 'Connecting...' : <><span>🤗</span> Sign in with Hugging Face</>}
               </Button>
+              */}
             </div>
           )}
         </div>

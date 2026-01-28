@@ -14,7 +14,9 @@ import {
   Loader,
   StatusLabel,
   StatusLabelProps,
+  Tabs,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import { Router } from '@kinvolk/headlamp-plugin/lib';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
@@ -25,7 +27,6 @@ import { MetricsPanel } from '../components/MetricsPanel';
 import { LogsViewer } from '../components/LogsViewer';
 import { ConnectionError } from '../components/ConnectionBanner';
 import { DeleteDialog } from '../components/DeleteDialog';
-import { ROUTES } from '../routes';
 import { getRuntimeColors } from '../lib/theme';
 
 // Status color mapping
@@ -138,7 +139,7 @@ export function DeploymentDetails() {
     setDeleting(true);
     try {
       await api.deployments.delete(deployment.name, deployment.namespace);
-      history.push(ROUTES.DEPLOYMENTS);
+      history.push(Router.createRouteURL('KubeFoundry Deployments'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete deployment');
     } finally {
@@ -203,12 +204,76 @@ export function DeploymentDetails() {
   const portForwardCommand = `kubectl port-forward svc/${serviceName} 8000:${servicePort || '8000'} -n ${deployment.namespace}`;
   const runtimeColors = getRuntimeColors(deployment.provider);
 
-  // Tab buttons
+  // Tab content components
+  const OverviewContent = (
+    <div style={{ display: 'grid', gap: '12px', maxWidth: '600px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
+        <span style={{ opacity: 0.7 }}>Model</span>
+        <span style={{ fontFamily: 'monospace' }}>{deployment.modelId || '-'}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
+        <span style={{ opacity: 0.7 }}>Provider</span>
+        <span>{deployment.provider}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
+        <span style={{ opacity: 0.7 }}>Engine</span>
+        <span>{deployment.engine || '-'}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
+        <span style={{ opacity: 0.7 }}>Mode</span>
+        <span style={{ textTransform: 'capitalize' }}>{deployment.mode || '-'}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
+        <span style={{ opacity: 0.7 }}>Replicas</span>
+        <span>{deployment.replicas?.ready || 0}/{deployment.replicas?.desired || 1}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
+        <span style={{ opacity: 0.7 }}>Created</span>
+        <span>{deployment.createdAt ? new Date(deployment.createdAt).toLocaleString() : '-'}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
+        <span style={{ opacity: 0.7 }}>Frontend Service</span>
+        <span style={{ fontFamily: 'monospace' }}>{deployment.frontendService || '-'}</span>
+      </div>
+    </div>
+  );
+
+  const PodsContent = (
+    <SimpleTable
+      columns={[
+        { label: 'Name', getter: (pod: PodStatus) => pod.name },
+        { label: 'Status', getter: (pod: PodStatus) => (
+          <StatusLabel status={getStatusColor(pod.phase)}>
+            {pod.phase}
+          </StatusLabel>
+        )},
+        { label: 'Node', getter: (pod: PodStatus) => pod.node || '-' },
+        { label: 'Ready', getter: (pod: PodStatus) => pod.ready ? 'Yes' : 'No' },
+        { label: 'Restarts', getter: (pod: PodStatus) => String(pod.restarts || 0) },
+      ]}
+      data={pods}
+    />
+  );
+
+  const MetricsContent = (
+    <MetricsPanel metrics={metrics} onRefresh={fetchMetrics} />
+  );
+
+  const LogsContent = (
+    <LogsViewer
+      logs={logs}
+      pods={pods}
+      selectedPod={selectedPod}
+      onSelectPod={setSelectedPod}
+      onRefresh={fetchLogs}
+    />
+  );
+
   const tabs = [
-    { id: 'overview' as const, label: 'Overview' },
-    { id: 'pods' as const, label: `Pods (${pods.length})` },
-    { id: 'metrics' as const, label: 'Metrics' },
-    { id: 'logs' as const, label: 'Logs' },
+    { label: 'Overview', component: OverviewContent },
+    { label: `Pods (${pods.length})`, component: PodsContent },
+    { label: 'Metrics', component: MetricsContent },
+    { label: 'Logs', component: LogsContent },
   ];
 
   return (
@@ -218,7 +283,7 @@ export function DeploymentDetails() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Tooltip title="Back to Deployments">
             <IconButton
-              onClick={() => history.push(ROUTES.DEPLOYMENTS)}
+              onClick={() => history.push(Router.createRouteURL('KubeFoundry Deployments'))}
               size="small"
               sx={{
                 border: '1px solid rgba(128, 128, 128, 0.3)',
@@ -354,92 +419,15 @@ export function DeploymentDetails() {
 
       {/* Tabbed Content */}
       <SectionBox title="">
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid rgba(128, 128, 128, 0.3)' }}>
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: '8px 16px',
-                border: 'none',
-                background: 'transparent',
-                borderBottom: activeTab === tab.id ? '2px solid #1976d2' : '2px solid transparent',
-                color: activeTab === tab.id ? '#1976d2' : 'inherit',
-                opacity: activeTab === tab.id ? 1 : 0.7,
-                cursor: 'pointer',
-                fontWeight: activeTab === tab.id ? 500 : 400,
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === 'overview' && (
-          <div style={{ display: 'grid', gap: '12px', maxWidth: '600px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
-              <span style={{ opacity: 0.7 }}>Model</span>
-              <span style={{ fontFamily: 'monospace' }}>{deployment.modelId || '-'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
-              <span style={{ opacity: 0.7 }}>Provider</span>
-              <span>{deployment.provider}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
-              <span style={{ opacity: 0.7 }}>Engine</span>
-              <span>{deployment.engine || '-'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
-              <span style={{ opacity: 0.7 }}>Mode</span>
-              <span style={{ textTransform: 'capitalize' }}>{deployment.mode || '-'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
-              <span style={{ opacity: 0.7 }}>Replicas</span>
-              <span>{deployment.replicas?.ready || 0}/{deployment.replicas?.desired || 1}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
-              <span style={{ opacity: 0.7 }}>Created</span>
-              <span>{deployment.createdAt ? new Date(deployment.createdAt).toLocaleString() : '-'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(128, 128, 128, 0.2)' }}>
-              <span style={{ opacity: 0.7 }}>Frontend Service</span>
-              <span style={{ fontFamily: 'monospace' }}>{deployment.frontendService || '-'}</span>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'pods' && (
-          <SimpleTable
-            columns={[
-              { label: 'Name', getter: (pod: PodStatus) => pod.name },
-              { label: 'Status', getter: (pod: PodStatus) => (
-                <StatusLabel status={getStatusColor(pod.phase)}>
-                  {pod.phase}
-                </StatusLabel>
-              )},
-              { label: 'Node', getter: (pod: PodStatus) => pod.node || '-' },
-              { label: 'Ready', getter: (pod: PodStatus) => pod.ready ? 'Yes' : 'No' },
-              { label: 'Restarts', getter: (pod: PodStatus) => String(pod.restarts || 0) },
-            ]}
-            data={pods}
-          />
-        )}
-
-        {activeTab === 'metrics' && (
-          <MetricsPanel metrics={metrics} onRefresh={fetchMetrics} />
-        )}
-
-        {activeTab === 'logs' && (
-          <LogsViewer
-            logs={logs}
-            pods={pods}
-            selectedPod={selectedPod}
-            onSelectPod={setSelectedPod}
-            onRefresh={fetchLogs}
-          />
-        )}
+        <Tabs
+          tabs={tabs}
+          ariaLabel="Deployment details tabs"
+          onTabChanged={(index) => {
+            const tabIds = ['overview', 'pods', 'metrics', 'logs'] as const;
+            setActiveTab(tabIds[index]);
+          }}
+          sx={{ borderBottom: 1, borderColor: 'divider', marginBottom: 2 }}
+        />
       </SectionBox>
 
       {/* Delete Confirmation Dialog */}

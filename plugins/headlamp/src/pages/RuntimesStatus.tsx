@@ -6,6 +6,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import { Icon } from '@iconify/react';
 import {
   SectionBox,
@@ -136,20 +138,11 @@ export function RuntimesStatus() {
       title="Runtime Status"
       headerProps={{
         actions: [
-          <button
-            key="refresh"
-            onClick={fetchStatus}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: 'transparent',
-              border: '1px solid rgba(128, 128, 128, 0.3)',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              color: 'inherit',
-            }}
-          >
-            Refresh
-          </button>,
+          <Tooltip key="refresh" title="Refresh">
+            <IconButton onClick={fetchStatus} size="small">
+              <Icon icon="mdi:refresh" />
+            </IconButton>
+          </Tooltip>,
         ],
       }}
     >
