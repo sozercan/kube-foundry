@@ -28,6 +28,7 @@ import { LogsViewer } from '../components/LogsViewer';
 import { ConnectionError } from '../components/ConnectionBanner';
 import { DeleteDialog } from '../components/DeleteDialog';
 import { getRuntimeColors } from '../lib/theme';
+import { generateAynaUrl } from '../lib/utils';
 
 // Status color mapping
 function getStatusColor(status: DeploymentPhase | string): StatusLabelProps['status'] {
@@ -414,6 +415,23 @@ export function DeploymentDetails() {
 
         <div style={{ fontSize: '12px', opacity: 0.6, marginTop: '8px' }}>
           After running the command, access the model at http://localhost:8000
+        </div>
+
+        {/* Ayna Integration */}
+        <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(128, 128, 128, 0.2)' }}>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<Icon icon="mdi:chat" />}
+            href={generateAynaUrl({
+              model: deployment.modelId,
+              provider: 'openai',
+              endpoint: 'http://localhost:8000',
+              type: 'chat',
+            })}
+          >
+            Open in Ayna
+          </Button>
         </div>
       </div>
 
